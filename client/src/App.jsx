@@ -735,19 +735,22 @@ function Overlay({children,onClose,C,wide}){
 function EmpForm({emp,units,labels,onSave,onCancel,C}){
   const [form,setForm] = useState({...emp});
   const set = k => e => setForm(f=>({...f,[k]:e.target.value}));
-  const Field = ({label,fkey,type="text",placeholder="",required=false})=>(
+
+  // Sima függvény, NEM komponens – így nem mountolódik újra gépeléskor
+  const field = (label, fkey, type="text", placeholder="", required=false) => (
     <div style={{marginBottom:"13px"}}>
       <label style={lbl(C)}>{label}{required&&<span style={{color:C.red}}> *</span>}</label>
       <input type={type} value={form[fkey]||""} onChange={set(fkey)} placeholder={placeholder} style={inp(C)}/>
     </div>
   );
+
   const valid = form.name?.trim()&&form.position?.trim()&&form.phone?.trim()&&form.email_1?.trim();
   return (
     <div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 14px"}}>
-        <div style={{gridColumn:"1 / -1"}}><Field label="TELJES NÉV" fkey="name" placeholder="Kovács Péter" required/></div>
-        <Field label="BEOSZTÁS" fkey="position" placeholder="pl. Fejlesztő" required/>
-        <Field label="TELEFONSZÁM" fkey="phone" type="tel" placeholder="+36 30 000-0000" required/>
+        <div style={{gridColumn:"1 / -1"}}>{field("TELJES NÉV","name","text","Kovács Péter",true)}</div>
+        {field("BEOSZTÁS","position","text","pl. Fejlesztő",true)}
+        {field("TELEFONSZÁM","phone","tel","+36 30 000-0000",true)}
         <div style={{gridColumn:"1 / -1",marginBottom:"13px"}}>
           <label style={lbl(C)}>{labels?.units?.toUpperCase() || "EGYSÉG"}</label>
           <select value={form.unit_id??""} onChange={e=>setForm(f=>({...f,unit_id:e.target.value===""?null:parseInt(e.target.value)}))} style={inp(C)}>
@@ -755,9 +758,9 @@ function EmpForm({emp,units,labels,onSave,onCancel,C}){
             <option value="">— Nincs {labels?.units||"egység"} —</option>
           </select>
         </div>
-        <div style={{gridColumn:"1 / -1"}}><Field label="EMAIL CÍM 1" fkey="email_1" type="email" placeholder="nev@vallalat.hu" required/></div>
-        <Field label="EMAIL CÍM 2" fkey="email_2" type="email" placeholder="opcionális"/>
-        <Field label="EMAIL CÍM 3" fkey="email_3" type="email" placeholder="opcionális"/>
+        <div style={{gridColumn:"1 / -1"}}>{field("EMAIL CÍM 1","email_1","email","nev@vallalat.hu",true)}</div>
+        {field("EMAIL CÍM 2","email_2","email","opcionális")}
+        {field("EMAIL CÍM 3","email_3","email","opcionális")}
       </div>
       <div style={{display:"flex",gap:"8px",justifyContent:"flex-end",marginTop:"6px"}}>
         <button onClick={onCancel} style={cancelBtn(C)}>Mégse</button>
