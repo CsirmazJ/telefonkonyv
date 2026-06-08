@@ -1,0 +1,248 @@
+'use strict';
+
+const express  = require('express');
+const Database = require('better-sqlite3');
+const bcrypt   = require('bcryptjs');
+const jwt      = require('jsonwebtoken');
+const path     = require('path');
+const fs       = require('fs');
+
+const app        = express();
+const PORT       = parseInt(process.env.PORT || '3000');
+const JWT_SECRET = process.env.JWT_SECRET || 'telefonkonyv-secret-change-me';
+const DB_PATH    = process.env.DB_PATH    || path.join(__dirname, 'data', 'telefonkonyv.db');
+
+app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));
+
+// ── Adatbázis inicializálás ───────────────────────────────────────────────────
+const dataDir = path.dirname(DB_PATH);
+if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+
+const db = new Database(DB_PATH);
+db.pragma('journal_mode = WAL');
+db.pragma('foreign_keys = ON');
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS units (
+    id   INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS employees (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    name      TEXT    NOT NULL,
+    position  TEXT    NOT NULL DEFAULT '',
+    phone     TEXT    NOT NULL DEFAULT '',
+    email_1   TEXT    NOT NULL DEFAULT '',
+    email_2   TEXT    NOT NULL DEFAULT '',
+    email_3   TEXT    NOT NULL DEFAULT '',
+    unit_id   INTEGER REFERENCES units(id) ON DELETE SET NULL,
+    active    INTEGER NOT NULL DEFAULT 1
+  );
+
+  CREATE TABLE IF NOT EXISTS users (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    username     TEXT UNIQUE NOT NULL,
+    password     TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    role         TEXT NOT NULL DEFAULT 'editor'
+  );
+
+  CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+`);
+
+// Alap adatok feltöltése (csak üres adatbázisnál)
+const seed = db.transaction(() => {
+  if (!db.prepare('SELECT 1 FROM units LIMIT 1').get()) {
+    const ins = db.prepare('INSERT INTO units (name) VALUES (?)');
+    ['IT', 'HR', 'Értékesítés', 'Pénzügy', 'Logisztika'].forEach(n => ins.run(n));
+  }
+  if (!db.prepare('SELECT 1 FROM users LIMIT 1').get()) {
+    db.prepare('INSERT INTO users (username,password,display_name,role) VALUES (?,?,?,?)')
+      .run('admin', bcrypt.hashSync('admin123', 10), 'Főadmin', 'superadmin');
+  }
+  if (!db.prepare('SELECT 1 FROM settings LIMIT 1').get()) {
+    const ins = db.prepare('INSERT OR IGNORE INTO settings (key,value) VALUES (?,?)');
+    ins.run('title',     'Telefonkönyv');
+    ins.run('employees', 'Munkatársak');
+    ins.run('units',     'Egységek');
+  }
+});
+seed();
+
+// ── Hitelesítés middleware ────────────────────────────────────────────────────
+const auth = (req, res, next) => {
+  const header = req.headers.authorization;
+  if (!header?.startsWith('Bearer '))
+    return res.status(401).json({ error: 'Bejelentkezés szükséges' });
+  try {
+    req.user = jwt.verify(header.slice(7), JWT_SECRET);
+    next();
+  } catch {
+    res.status(401).json({ error: 'Érvénytelen token – kérlek jelentkezz be újra' });
+  }
+};
+
+const superadminOnly = (req, res, next) => {
+  if (req.user?.role !== 'superadmin')
+    return res.status(403).json({ error: 'Csak főadmin végezheti ezt a műveletet' });
+  next();
+};
+
+// Segédfüggvény: employee sor normalizálása (active 0/1 → boolean)
+const normalizeEmp = (e) => e ? { ...e, active: e.active === 1 } : null;
+
+// ── Hitelesítési végpontok ────────────────────────────────────────────────────
+app.post('/api/auth/login', (req, res) => {
+  const { username, password } = req.body || {};
+  if (!username || !password)
+    return res.status(400).json({ error: 'Felhasználónév és jelszó szükséges' });
+
+  const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username);
+  if (!user || !bcrypt.compareSync(password, user.password))
+    return res.status(401).json({ error: 'Helytelen felhasználónév vagy jelszó!' });
+
+  const payload = { id: user.id, username: user.username, role: user.role, displayName: user.display_name };
+  const token   = jwt.sign(payload, JWT_SECRET, { expiresIn: '8h' });
+  res.json({ token, user: payload });
+});
+
+// ── Egységek (units) ──────────────────────────────────────────────────────────
+app.get('/api/units', (_req, res) => {
+  res.json(db.prepare('SELECT * FROM units ORDER BY name').all());
+});
+
+app.post('/api/units', auth, (req, res) => {
+  const { name } = req.body;
+  if (!name?.trim()) return res.status(400).json({ error: 'Név megadása kötelező' });
+  const r = db.prepare('INSERT INTO units (name) VALUES (?)').run(name.trim());
+  res.status(201).json(db.prepare('SELECT * FROM units WHERE id = ?').get(r.lastInsertRowid));
+});
+
+app.put('/api/units/:id', auth, (req, res) => {
+  const { name } = req.body;
+  db.prepare('UPDATE units SET name = ? WHERE id = ?').run(name, req.params.id);
+  const unit = db.prepare('SELECT * FROM units WHERE id = ?').get(req.params.id);
+  unit ? res.json(unit) : res.status(404).json({ error: 'Nem található' });
+});
+
+app.delete('/api/units/:id', auth, (req, res) => {
+  // Az egységhez tartozó munkatársak unit_id-ját null-ra állítja (ON DELETE SET NULL)
+  db.prepare('DELETE FROM units WHERE id = ?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+// ── Munkatársak (employees) ───────────────────────────────────────────────────
+app.get('/api/employees', (req, res) => {
+  const parts  = ['SELECT * FROM employees WHERE 1=1'];
+  const params = [];
+
+  if (req.query.unit_id === 'unassigned') {
+    parts.push('AND unit_id IS NULL');
+  } else if (req.query.unit_id) {
+    parts.push('AND unit_id = ?');
+    params.push(req.query.unit_id);
+  }
+
+  if (req.query.search) {
+    const s = `%${req.query.search}%`;
+    parts.push('AND (name LIKE ? OR position LIKE ? OR phone LIKE ? OR email_1 LIKE ? OR email_2 LIKE ? OR email_3 LIKE ?)');
+    params.push(s, s, s, s, s, s);
+  }
+
+  parts.push('ORDER BY name');
+  res.json(db.prepare(parts.join(' ')).all(...params).map(normalizeEmp));
+});
+
+app.post('/api/employees', auth, (req, res) => {
+  const { name, position, phone, email_1, email_2, email_3, unit_id, active } = req.body;
+  const r = db.prepare(
+    'INSERT INTO employees (name,position,phone,email_1,email_2,email_3,unit_id,active) VALUES (?,?,?,?,?,?,?,?)'
+  ).run(name, position||'', phone||'', email_1||'', email_2||'', email_3||'', unit_id||null, active?1:0);
+  res.status(201).json(normalizeEmp(db.prepare('SELECT * FROM employees WHERE id = ?').get(r.lastInsertRowid)));
+});
+
+app.put('/api/employees/:id', auth, (req, res) => {
+  const { name, position, phone, email_1, email_2, email_3, unit_id, active } = req.body;
+  db.prepare(
+    'UPDATE employees SET name=?,position=?,phone=?,email_1=?,email_2=?,email_3=?,unit_id=?,active=? WHERE id=?'
+  ).run(name, position||'', phone||'', email_1||'', email_2||'', email_3||'', unit_id||null, active?1:0, req.params.id);
+  const emp = db.prepare('SELECT * FROM employees WHERE id = ?').get(req.params.id);
+  emp ? res.json(normalizeEmp(emp)) : res.status(404).json({ error: 'Nem található' });
+});
+
+app.delete('/api/employees/:id', auth, (req, res) => {
+  db.prepare('DELETE FROM employees WHERE id = ?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+// ── Felhasználók (users) ──────────────────────────────────────────────────────
+app.get('/api/users', auth, (req, res) => {
+  res.json(
+    db.prepare('SELECT id, username, display_name as displayName, role FROM users ORDER BY id').all()
+  );
+});
+
+app.post('/api/users', auth, superadminOnly, (req, res) => {
+  const { username, password, displayName, role } = req.body;
+  if (!username?.trim() || !password?.trim())
+    return res.status(400).json({ error: 'Felhasználónév és jelszó kötelező' });
+  try {
+    const r = db.prepare('INSERT INTO users (username,password,display_name,role) VALUES (?,?,?,?)')
+      .run(username.trim(), bcrypt.hashSync(password, 10), displayName, role || 'editor');
+    res.status(201).json({ id: r.lastInsertRowid, username: username.trim(), displayName, role: role || 'editor' });
+  } catch {
+    res.status(409).json({ error: 'Ez a felhasználónév már foglalt' });
+  }
+});
+
+app.put('/api/users/:id', auth, superadminOnly, (req, res) => {
+  const { username, password, displayName, role } = req.body;
+  if (password?.trim()) {
+    db.prepare('UPDATE users SET username=?,password=?,display_name=?,role=? WHERE id=?')
+      .run(username, bcrypt.hashSync(password, 10), displayName, role, req.params.id);
+  } else {
+    db.prepare('UPDATE users SET username=?,display_name=?,role=? WHERE id=?')
+      .run(username, displayName, role, req.params.id);
+  }
+  res.json({ id: parseInt(req.params.id), username, displayName, role });
+});
+
+app.delete('/api/users/:id', auth, superadminOnly, (req, res) => {
+  const target      = db.prepare('SELECT * FROM users WHERE id=?').get(req.params.id);
+  const superCount  = db.prepare("SELECT COUNT(*) as c FROM users WHERE role='superadmin'").get().c;
+  if (target?.role === 'superadmin' && superCount <= 1)
+    return res.status(400).json({ error: 'Az utolsó főadmin nem törölhető!' });
+  db.prepare('DELETE FROM users WHERE id=?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+// ── Beállítások (settings) ────────────────────────────────────────────────────
+app.get('/api/settings', (_req, res) => {
+  const rows = db.prepare('SELECT key, value FROM settings').all();
+  const obj  = {};
+  rows.forEach(r => obj[r.key] = r.value);
+  res.json(obj);
+});
+
+app.put('/api/settings', auth, (req, res) => {
+  const upsert = db.prepare('INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)');
+  const txn    = db.transaction(data => Object.entries(data).forEach(([k, v]) => upsert.run(k, v)));
+  txn(req.body);
+  res.json({ ok: true });
+});
+
+// ── SPA fallback (React Router kompatibilis) ──────────────────────────────────
+app.get('*', (_req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// ── Szerver indítás ───────────────────────────────────────────────────────────
+app.listen(PORT, () => {
+  console.log(`✅ Telefonkönyv szerver fut: http://localhost:${PORT}`);
+  console.log(`📁 Adatbázis: ${DB_PATH}`);
+});

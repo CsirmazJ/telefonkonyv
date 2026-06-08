@@ -1,0 +1,29 @@
+version: "3.8"
+
+services:
+  telefonkonyv:
+    image: telefonkonyv:v0.01
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: telefonkonyv
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - telefonkonyv_data:/app/data
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      JWT_SECRET: ${JWT_SECRET:-valtoztasd-meg-ezt-eles-kornyezetben}
+      DB_PATH: /app/data/telefonkonyv.db
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/settings"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  telefonkonyv_data:
+    driver: local
