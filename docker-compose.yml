@@ -2,7 +2,6 @@ version: "3.8"
 
 services:
   telefonkonyv:
-    image: telefonkonyv:v0.01
     build:
       context: .
       dockerfile: Dockerfile
