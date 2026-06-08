@@ -9,7 +9,7 @@ services:
     container_name: telefonkonyv
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "3001:3000"
     volumes:
       - telefonkonyv_data:/app/data
     environment:
