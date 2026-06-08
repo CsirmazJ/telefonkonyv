@@ -2,7 +2,7 @@
 FROM node:20-alpine AS frontend-builder
 WORKDIR /build
 COPY client/package*.json ./
-RUN npm ci
+RUN npm install
 COPY client/ .
 RUN npm run build
 
@@ -11,7 +11,7 @@ FROM node:20-alpine AS backend-builder
 RUN apk add --no-cache python3 make g++
 WORKDIR /build
 COPY package*.json ./
-RUN npm ci --only=production
+RUN npm install --only=production
 
 # ── 3. fázis: Végleges image ───────────────────────────────────────────────────
 FROM node:20-alpine
