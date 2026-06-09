@@ -16,7 +16,7 @@ const call = async (url, method = "GET", body = null, token = null) => {
 };
 
 // ─── Üres munkatárs sablon ────────────────────────────────────────────────────
-const EMPTY_EMP = { name: "", position: "", phone: "", email_1: "", email_2: "", email_3: "", unit_id: null, active: true };
+const EMPTY_EMP = { name: "", position: "", phone: "", phone_2: "", email_1: "", email_2: "", email_3: "", unit_id: null, active: true };
 
 // ─── Telefonszám formázó (Google-stílus: +36703631372) ────────────────────────
 const fmtPhone = (p) => {
@@ -94,6 +94,9 @@ export default function PhoneBook() {
   const [importing,       setImporting]       = useState(false);
   const [toast,           setToast]           = useState(null);
   const [auditLog,        setAuditLog]        = useState([]);
+  const [copiedKey,       setCopiedKey]       = useState(null);
+  const [selectedIds,     setSelectedIds]     = useState(new Set());
+  const [bulkUnit,        setBulkUnit]        = useState("");
   const importInputRef = useRef(null);
 
   const showToast = (message, type="success") => {
@@ -137,6 +140,26 @@ export default function PhoneBook() {
     if (!token || currentUser?.role !== "superadmin") return;
     call("/api/audit", "GET", null, token).then(setAuditLog).catch(console.error);
   }, [token, currentUser, adminTab]);
+
+  useEffect(() => { setSelectedIds(new Set()); }, [selUnit, search]);
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== "Escape") return;
+      if (deleteConfirm)     { setDeleteConfirm(null);     return; }
+      if (deleteUnitConfirm) { setDeleteUnitConfirm(null); return; }
+      if (importModal)       { setImportModal(null);       return; }
+      if (empModal)          { setEmpModal(null);          return; }
+      if (unitModal)         { setUnitModal(null);         return; }
+      if (userModal)         { setUserModal(null);         return; }
+      if (exportModal)       { setExportModal(null);       return; }
+      if (loginOpen)         { setLoginOpen(false);        return; }
+      if (exportOpen)        { setExportOpen(false);       return; }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [deleteConfirm, deleteUnitConfirm, importModal, empModal,
+      unitModal, userModal, exportModal, loginOpen, exportOpen]);
 
   // ── Segédfüggvények ──────────────────────────────────────────────────────────
   const uName    = useCallback((uid) => uid == null ? "Nincs" : (units.find(u => u.id===uid)?.name||"–"), [units]);
@@ -276,8 +299,8 @@ export default function PhoneBook() {
   const doXLSX = (list) => {
     const uLabel = labels.units;
     const uId = list.length>0&&list.every(e=>e.unit_id===list[0].unit_id) ? uName(list[0].unit_id) : "osszes";
-    const data = list.map(e=>({ "Név":e.name,"Beosztás":e.position,"Telefon":e.phone,"Email 1":e.email_1,"Email 2":e.email_2,"Email 3":e.email_3,[uLabel]:uName(e.unit_id) }));
-    const ws=XLSX.utils.json_to_sheet(data); ws["!cols"]=[{wch:22},{wch:26},{wch:18},{wch:30},{wch:30},{wch:30},{wch:14}];
+    const data = list.map(e=>({ "Név":e.name,"Beosztás":e.position,"Telefon":e.phone,"Telefon 2":e.phone_2,"Email 1":e.email_1,"Email 2":e.email_2,"Email 3":e.email_3,[uLabel]:uName(e.unit_id) }));
+    const ws=XLSX.utils.json_to_sheet(data); ws["!cols"]=[{wch:22},{wch:26},{wch:18},{wch:18},{wch:30},{wch:30},{wch:30},{wch:14}];
     const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,labels.title);
     XLSX.writeFile(wb,`telefonkonyv_${uId}.xlsx`);
   };
@@ -286,6 +309,7 @@ export default function PhoneBook() {
     const uId = list.length>0&&list.every(e=>e.unit_id===list[0].unit_id) ? uName(list[0].unit_id) : "osszes";
     const hasEmail2 = list.some(e=>e.email_2);
     const hasEmail3 = list.some(e=>e.email_3);
+    const hasPhone2 = list.some(e=>e.phone_2);
     const headers = [
       "First Name","Middle Name","Last Name",
       "Phonetic First Name","Phonetic Middle Name","Phonetic Last Name",
@@ -296,6 +320,7 @@ export default function PhoneBook() {
       ...(hasEmail2?["E-mail 2 - Label","E-mail 2 - Value"]:[]),
       ...(hasEmail3?["E-mail 3 - Label","E-mail 3 - Value"]:[]),
       "Phone 1 - Label","Phone 1 - Value",
+      ...(hasPhone2?["Phone 2 - Label","Phone 2 - Value"]:[]),
     ];
     const rows = list.map(e => {
       const parts = e.name.trim().split(/\s+/);
@@ -310,6 +335,7 @@ export default function PhoneBook() {
         ...(hasEmail2?["*",e.email_2]:[]),
         ...(hasEmail3?["*",e.email_3]:[]),
         "Mobile", e.phone,
+        ...(hasPhone2?["Work",e.phone_2||""]:[]),
       ];
     });
     const esc = v => `"${(v||"").replace(/"/g,'""')}"`;
@@ -319,7 +345,10 @@ export default function PhoneBook() {
     a.href=url; a.download=`google_contacts_${uId}.csv`; a.click(); URL.revokeObjectURL(url);
   };
   const handleExport = (type, scope, unitId) => {
-    const list = scope==="all" ? employees.filter(e=>e.active) : employees.filter(e=>e.active&&e.unit_id===unitId);
+    const list =
+      scope==="all"      ? employees.filter(e=>e.active) :
+      scope==="filtered" ? filtered.filter(e=>e.active)  :
+                           employees.filter(e=>e.active&&e.unit_id===unitId);
     if (type==="xlsx") doXLSX(list); else doGoogleCSV(list);
     setExportModal(null);
   };
@@ -392,6 +421,7 @@ export default function PhoneBook() {
             name, active:true, unit_id,
             position: get("Organization Title"),
             phone:    get("Phone 1 - Value"),
+            phone_2:  get("Phone 2 - Value"),
             email_1:  email1,
             email_2:  get("E-mail 2 - Value"),
             email_3:  get("E-mail 3 - Value"),
@@ -431,6 +461,46 @@ export default function PhoneBook() {
       showToast("Beállítások mentve");
     } catch(e) { showToast("Mentési hiba: "+e.message,"error"); }
   };
+
+  // ── vCard letöltés ───────────────────────────────────────────────────────────
+  const downloadVCard = (emp) => {
+    const lastName  = emp.name.trim().split(/\s+/)[0] || "";
+    const firstName = emp.name.trim().split(/\s+/).slice(1).join(" ");
+    const orgName   = labels.title || "Vállalat";
+    const unitName  = uName(emp.unit_id) || "";
+    const lines = [
+      "BEGIN:VCARD", "VERSION:3.0",
+      `FN:${emp.name}`, `N:${lastName};${firstName};;;`,
+      emp.phone   ? `TEL;TYPE=CELL:${fmtPhone(emp.phone)}`   : "",
+      emp.phone_2 ? `TEL;TYPE=WORK:${fmtPhone(emp.phone_2)}` : "",
+      emp.email_1 ? `EMAIL;TYPE=WORK:${emp.email_1}` : "",
+      emp.email_2 ? `EMAIL;TYPE=WORK:${emp.email_2}` : "",
+      emp.email_3 ? `EMAIL;TYPE=WORK:${emp.email_3}` : "",
+      emp.position ? `TITLE:${emp.position}` : "",
+      `ORG:${orgName};${unitName}`,
+      "END:VCARD",
+    ].filter(Boolean).join("\r\n");
+    const blob = new Blob([lines], { type:"text/vcard;charset=utf-8;" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href = url; a.download = `${emp.name.replace(/\s+/g,"_")}.vcf`; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // ── Vágólapra másolás gomb ────────────────────────────────────────────────────
+  const copyBtn = (value, key) => {
+    if (!value) return null;
+    const copied = copiedKey === key;
+    return (
+      <button onClick={(e) => { e.preventDefault(); navigator.clipboard.writeText(value.trim()).then(() => { setCopiedKey(key); setTimeout(()=>setCopiedKey(null),1500); }); }}
+        title="Vágólapra másolás"
+        style={{background:"none",border:"none",cursor:"pointer",padding:"2px 4px",color:copied?"#16a34a":C.textMuted,fontSize:"11px",lineHeight:1,marginLeft:"4px",opacity:copied?1:0.5,transition:"all 0.2s",verticalAlign:"middle"}}>
+        {copied?"✓":"⎘"}
+      </button>
+    );
+  };
+
+  const hasActiveFilter = !!search.trim() || selUnit !== null;
 
   // ── Táblázat stílusok ────────────────────────────────────────────────────────
   const TH = { padding:"11px 14px",textAlign:"left",fontSize:"10.5px",fontWeight:"700",letterSpacing:"0.09em",textTransform:"uppercase",color:C.thText,backgroundColor:C.thBg,cursor:"pointer",userSelect:"none",whiteSpace:"nowrap",borderBottom:`1px solid ${C.thBorder}` };
@@ -586,6 +656,42 @@ export default function PhoneBook() {
           </div>
         )}
 
+        {/* Tömeges műveletek sáv */}
+        {isAdmin && adminTab==="employees" && selectedIds.size>0 && (
+          <div style={{display:"flex",alignItems:"center",gap:"12px",flexWrap:"wrap",padding:"10px 14px",marginBottom:"10px",backgroundColor:dark?"#0f1a28":"#eff6ff",border:`1px solid ${C.blue}`,borderRadius:"9px",fontSize:"13px"}}>
+            <span style={{color:C.blue,fontWeight:"600"}}>{selectedIds.size} munkatárs kijelölve</span>
+            <div style={{display:"flex",alignItems:"center",gap:"6px",marginLeft:"auto"}}>
+              <select value={bulkUnit} onChange={e=>setBulkUnit(e.target.value)} style={{...inp(C),width:"auto",padding:"5px 10px",fontSize:"12.5px"}}>
+                <option value="">— Egység módosítása —</option>
+                {units.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
+                <option value="null">Nincs egység</option>
+              </select>
+              <button disabled={!bulkUnit} onClick={async()=>{
+                const uid=bulkUnit==="null"?null:parseInt(bulkUnit);
+                const count=selectedIds.size;
+                for(const id of selectedIds){
+                  const emp=employees.find(e=>e.id===id);
+                  if(!emp) continue;
+                  try{const u=await call(`/api/employees/${id}`,"PUT",{...emp,unit_id:uid},token);setEmployees(p=>p.map(e=>e.id===id?u:e));}catch{}
+                }
+                setSelectedIds(new Set());setBulkUnit("");
+                showToast(`${count} munkatárs egysége módosítva`);
+              }} style={{padding:"5px 12px",backgroundColor:C.blue,color:"#fff",border:"none",borderRadius:"6px",fontSize:"12.5px",fontWeight:"600",cursor:bulkUnit?"pointer":"default",opacity:bulkUnit?1:0.5}}>Alkalmaz</button>
+            </div>
+            <button onClick={async()=>{
+              const count=selectedIds.size;
+              for(const id of selectedIds){
+                const emp=employees.find(e=>e.id===id);
+                if(!emp||!emp.active) continue;
+                try{const u=await call(`/api/employees/${id}`,"PUT",{...emp,active:false},token);setEmployees(p=>p.map(e=>e.id===id?u:e));}catch{}
+              }
+              setSelectedIds(new Set());
+              showToast(`${count} munkatárs archiválva`);
+            }} style={{padding:"5px 12px",backgroundColor:dark?"#2a1e00":"#fef3c7",color:"#d97706",border:"none",borderRadius:"6px",fontSize:"12.5px",cursor:"pointer"}}>📁 Archiválás</button>
+            <button onClick={()=>setSelectedIds(new Set())} style={{padding:"5px 12px",backgroundColor:"transparent",border:`1px solid ${C.cardBorder}`,borderRadius:"6px",color:C.textLight,fontSize:"12.5px",cursor:"pointer"}}>Kijelölés törlése</button>
+          </div>
+        )}
+
         {/* Infó sáv */}
         {(!isAdmin||adminTab==="employees") && (
           <div style={{marginBottom:"10px",fontSize:"12.5px",color:C.textMuted,display:"flex",alignItems:"center",gap:"8px",flexWrap:"wrap"}}>
@@ -605,6 +711,14 @@ export default function PhoneBook() {
               <table style={{width:"100%",borderCollapse:"collapse"}}>
                 <thead>
                   <tr>
+                    {isAdmin && (
+                      <th style={{...TH,width:"36px",cursor:"default"}}>
+                        <input type="checkbox"
+                          checked={selectedIds.size>0 && filtered.every(e=>selectedIds.has(e.id))}
+                          onChange={e=>setSelectedIds(e.target.checked ? new Set(filtered.map(e=>e.id)) : new Set())}
+                          style={{cursor:"pointer"}}/>
+                      </th>
+                    )}
                     {[{key:"name",label:"Név"},{key:"position",label:"Beosztás"},{key:"phone",label:"Telefonszám"},{key:"email_1",label:"Email cím(ek)"},{key:"unit",label:labels.units}].map(col=>(
                       <th key={col.key} className="sth" style={TH} onClick={()=>handleSort(col.key)}>
                         <span style={{display:"flex",alignItems:"center",gap:"5px"}}>{col.label} {sortIcon(col.key)}</span>
@@ -615,26 +729,49 @@ export default function PhoneBook() {
                 </thead>
                 <tbody>
                   {filtered.length===0 ? (
-                    <tr><td colSpan={isAdmin?6:5} style={{padding:"48px 20px",textAlign:"center",color:C.textMuted,fontSize:"14px"}}><div style={{fontSize:"32px",marginBottom:"8px"}}>🔍</div>Nincs találat</td></tr>
+                    <tr><td colSpan={isAdmin?7:5} style={{padding:"48px 20px",textAlign:"center",color:C.textMuted,fontSize:"14px"}}><div style={{fontSize:"32px",marginBottom:"8px"}}>🔍</div>Nincs találat</td></tr>
                   ) : filtered.map((emp,idx)=>(
                     <tr key={emp.id} className="row-hover" style={{backgroundColor:!emp.active?C.rowArchived:idx%2===0?C.cardBg:C.cardBg2}}>
+                      {isAdmin && (
+                        <td style={{...TD,width:"36px"}}>
+                          <input type="checkbox" checked={selectedIds.has(emp.id)}
+                            onChange={e=>setSelectedIds(prev=>{const n=new Set(prev);e.target.checked?n.add(emp.id):n.delete(emp.id);return n;})}
+                            style={{cursor:"pointer"}}/>
+                        </td>
+                      )}
                       <td style={{...TD,fontWeight:"600",color:C.text}}>
                         <div style={{display:"flex",alignItems:"center",gap:"7px"}}>
                           <div style={{width:"28px",height:"28px",borderRadius:"50%",backgroundColor:C.blueSoft,color:C.blue,display:"flex",alignItems:"center",justifyContent:"center",fontSize:"11px",fontWeight:"700",flexShrink:0}}>
                             {emp.name.split(" ").slice(0,2).map(n=>n[0]).join("")}
                           </div>
                           <div>
-                            <div>{emp.name}</div>
+                            {isAdmin ? <div>{emp.name}</div> : (
+                              <div onClick={()=>downloadVCard(emp)} title="vCard letöltése" style={{cursor:"pointer",display:"inline"}} onMouseEnter={e=>e.currentTarget.style.textDecoration="underline"} onMouseLeave={e=>e.currentTarget.style.textDecoration="none"}>{emp.name}</div>
+                            )}
                             {!emp.active && <span style={{fontSize:"10px",backgroundColor:dark?"#2a1e00":"#fef3c7",color:"#d97706",padding:"1px 6px",borderRadius:"8px",fontWeight:"700"}}>ARCHIVÁLT</span>}
                           </div>
                         </div>
                       </td>
                       <td style={{...TD,color:C.tdTextLight,fontSize:"13px"}}>{emp.position}</td>
-                      <td style={TD}>{fmtPhone(emp.phone)?<a href={`tel:${fmtPhone(emp.phone)}`} style={{fontFamily:"'JetBrains Mono','Courier New',monospace",fontSize:"12.5px",color:C.tdTextMid,textDecoration:"none"}} onMouseEnter={e=>e.target.style.textDecoration="underline"} onMouseLeave={e=>e.target.style.textDecoration="none"}>{fmtPhone(emp.phone)}</a>:<span style={{color:C.textMuted}}>—</span>}</td>
+                      <td style={TD}>
+                        {fmtPhone(emp.phone) ? (
+                          <div>
+                            <a href={`tel:${fmtPhone(emp.phone)}`} style={{fontFamily:"'JetBrains Mono','Courier New',monospace",fontSize:"12.5px",color:C.tdTextMid,textDecoration:"none"}} onMouseEnter={e=>e.target.style.textDecoration="underline"} onMouseLeave={e=>e.target.style.textDecoration="none"}>{fmtPhone(emp.phone)}</a>
+                            {copyBtn(fmtPhone(emp.phone), `${emp.id}_p1`)}
+                          </div>
+                        ) : <span style={{color:C.textMuted}}>—</span>}
+                        {fmtPhone(emp.phone_2) && (
+                          <div style={{marginTop:"3px"}}>
+                            <a href={`tel:${fmtPhone(emp.phone_2)}`} style={{fontFamily:"'JetBrains Mono','Courier New',monospace",fontSize:"11.5px",color:C.textMuted,textDecoration:"none"}} onMouseEnter={e=>e.target.style.textDecoration="underline"} onMouseLeave={e=>e.target.style.textDecoration="none"}>{fmtPhone(emp.phone_2)}</a>
+                            {copyBtn(fmtPhone(emp.phone_2), `${emp.id}_p2`)}
+                          </div>
+                        )}
+                      </td>
                       <td style={TD}>
                         {[emp.email_1,emp.email_2,emp.email_3].filter(Boolean).map((em,i)=>(
                           <div key={i} style={{marginBottom:i<2?"2px":0}}>
                             <a href={`mailto:${em}`} style={{color:C.blue,textDecoration:"none",fontSize:"13px"}} onMouseEnter={e=>e.target.style.textDecoration="underline"} onMouseLeave={e=>e.target.style.textDecoration="none"}>{em}</a>
+                            {copyBtn(em, `${emp.id}_e${i}`)}
                           </div>
                         ))}
                       </td>
@@ -804,6 +941,24 @@ export default function PhoneBook() {
             <h2 style={{fontSize:"17px",fontWeight:"700",color:C.text}}>{exportModal==="xlsx"?"📊 Excel (.xlsx)":"📇 Google Névjegyek (.csv)"}</h2>
             <p style={{fontSize:"13px",color:C.textLight,marginTop:"6px"}}>Válaszd ki, milyen adatokat exportáljon:</p>
           </div>
+          {hasActiveFilter && (
+            <button onClick={()=>handleExport(exportModal,"filtered",null)}
+              style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 16px",backgroundColor:dark?"#0f2040":C.blueSoft,border:`1.5px solid ${C.blue}`,borderRadius:"10px",cursor:"pointer",marginBottom:"10px",textAlign:"left"}}
+              onMouseEnter={e=>e.currentTarget.style.opacity="0.85"} onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
+              <div style={{display:"flex",alignItems:"center",gap:"12px"}}>
+                <div style={{width:"38px",height:"38px",borderRadius:"9px",backgroundColor:C.blue,display:"flex",alignItems:"center",justifyContent:"center",fontSize:"19px",flexShrink:0}}>🔍</div>
+                <div>
+                  <div style={{fontWeight:"700",fontSize:"13.5px",color:C.blue}}>Jelenlegi szűrés</div>
+                  <div style={{fontSize:"12px",color:C.blueText,marginTop:"2px"}}>
+                    {search.trim()?`Keresés: "${search.trim()}" · `:""}
+                    {selUnit&&typeof selUnit==="number"?uName(selUnit):""}
+                    {selUnit==="unassigned"?`${labels.units} nélkül`:""}
+                  </div>
+                </div>
+              </div>
+              <span style={{backgroundColor:C.blue,color:"#fff",padding:"3px 12px",borderRadius:"20px",fontSize:"12px",fontWeight:"700",whiteSpace:"nowrap",marginLeft:"12px"}}>{filtered.filter(e=>e.active).length} fő</span>
+            </button>
+          )}
           <button onClick={()=>handleExport(exportModal,"all",null)}
             style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 16px",backgroundColor:C.cardBg,border:`1.5px solid ${C.cardBorder}`,borderRadius:"10px",cursor:"pointer",marginBottom:"10px",textAlign:"left"}}
             onMouseEnter={e=>{e.currentTarget.style.borderColor=C.blue;e.currentTarget.style.backgroundColor=C.rowHover;}}
@@ -1045,6 +1200,7 @@ function EmpForm({emp,units,labels,onSave,onCancel,C}){
     if (!form.position?.trim()) newErrors.position = "Ez a mező kötelező";
     if (!form.phone?.trim())          newErrors.phone    = "Ez a mező kötelező";
     else if (!validPhone(form.phone)) newErrors.phone    = "Érvénytelen formátum – pl. +36301234567";
+    if (form.phone_2?.trim() && !validPhone(form.phone_2)) newErrors.phone_2 = "Érvénytelen formátum – pl. +36301234567";
     if (!form.email_1?.trim())          newErrors.email_1 = "Ez a mező kötelező";
     else if (!validEmail(form.email_1)) newErrors.email_1 = "Érvénytelen email cím";
     if (form.email_2?.trim() && !validEmail(form.email_2)) newErrors.email_2 = "Érvénytelen email cím";
@@ -1059,6 +1215,7 @@ function EmpForm({emp,units,labels,onSave,onCancel,C}){
         <div style={{gridColumn:"1 / -1"}}>{field("TELJES NÉV","name","text","Kovács Péter",true)}</div>
         {field("BEOSZTÁS","position","text","pl. Fejlesztő",true)}
         {field("TELEFONSZÁM","phone","tel","+36301234567",true)}
+        {field("2. TELEFONSZÁM (opcionális)","phone_2","tel","+36301234567")}
         <div style={{gridColumn:"1 / -1",marginBottom:"13px"}}>
           <label style={lbl(C)}>{labels?.units?.toUpperCase() || "EGYSÉG"}</label>
           <select value={form.unit_id??""} onChange={e=>setForm(f=>({...f,unit_id:e.target.value===""?null:parseInt(e.target.value)}))} style={inp(C)}>

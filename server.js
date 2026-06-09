@@ -35,6 +35,7 @@ db.exec(`
     name      TEXT    NOT NULL,
     position  TEXT    NOT NULL DEFAULT '',
     phone     TEXT    NOT NULL DEFAULT '',
+    phone_2   TEXT    NOT NULL DEFAULT '',
     email_1   TEXT    NOT NULL DEFAULT '',
     email_2   TEXT    NOT NULL DEFAULT '',
     email_3   TEXT    NOT NULL DEFAULT '',
@@ -66,6 +67,9 @@ db.exec(`
     detail     TEXT
   );
 `);
+
+// phone_2 oszlop hozzáadása meglévő adatbázishoz (migráció)
+try { db.exec("ALTER TABLE employees ADD COLUMN phone_2 TEXT NOT NULL DEFAULT ''"); } catch {}
 
 // sort_order oszlop hozzáadása meglévő adatbázishoz (migráció)
 try {
@@ -224,20 +228,20 @@ app.get('/api/employees', (req, res) => {
 });
 
 app.post('/api/employees', auth, (req, res) => {
-  const { name, position, phone, email_1, email_2, email_3, unit_id, active } = req.body;
+  const { name, position, phone, phone_2, email_1, email_2, email_3, unit_id, active } = req.body;
   const r = db.prepare(
-    'INSERT INTO employees (name,position,phone,email_1,email_2,email_3,unit_id,active) VALUES (?,?,?,?,?,?,?,?)'
-  ).run(name, position||'', phone||'', email_1||'', email_2||'', email_3||'', unit_id||null, active?1:0);
+    'INSERT INTO employees (name,position,phone,phone_2,email_1,email_2,email_3,unit_id,active) VALUES (?,?,?,?,?,?,?,?,?)'
+  ).run(name, position||'', phone||'', phone_2||'', email_1||'', email_2||'', email_3||'', unit_id||null, active?1:0);
   const emp = normalizeEmp(db.prepare('SELECT * FROM employees WHERE id = ?').get(r.lastInsertRowid));
   log(req.user, 'CREATE', 'employees', emp.id, name);
   res.status(201).json(emp);
 });
 
 app.put('/api/employees/:id', auth, (req, res) => {
-  const { name, position, phone, email_1, email_2, email_3, unit_id, active } = req.body;
+  const { name, position, phone, phone_2, email_1, email_2, email_3, unit_id, active } = req.body;
   db.prepare(
-    'UPDATE employees SET name=?,position=?,phone=?,email_1=?,email_2=?,email_3=?,unit_id=?,active=? WHERE id=?'
-  ).run(name, position||'', phone||'', email_1||'', email_2||'', email_3||'', unit_id||null, active?1:0, req.params.id);
+    'UPDATE employees SET name=?,position=?,phone=?,phone_2=?,email_1=?,email_2=?,email_3=?,unit_id=?,active=? WHERE id=?'
+  ).run(name, position||'', phone||'', phone_2||'', email_1||'', email_2||'', email_3||'', unit_id||null, active?1:0, req.params.id);
   const emp = db.prepare('SELECT * FROM employees WHERE id = ?').get(req.params.id);
   if (!emp) return res.status(404).json({ error: 'Nem található' });
   log(req.user, 'UPDATE', 'employees', emp.id, name);
