@@ -83,7 +83,7 @@ export default function PhoneBook() {
   const [userModal,       setUserModal]       = useState(null);
   const [deleteConfirm,   setDeleteConfirm]   = useState(null);
   const [deleteUnitConfirm, setDeleteUnitConfirm] = useState(null);
-  const [importRows,      setImportRows]      = useState(null);
+  const [importModal,     setImportModal]     = useState(null); // null | { rows, warnings, errors }
   const [importing,       setImporting]       = useState(false);
   const importInputRef = useRef(null);
 
@@ -247,15 +247,43 @@ export default function PhoneBook() {
 
   const doGoogleCSV = (list) => {
     const uId = list.length>0&&list.every(e=>e.unit_id===list[0].unit_id) ? uName(list[0].unit_id) : "osszes";
-    const headers=["Name","Given Name","Family Name","E-mail 1 - Type","E-mail 1 - Value","E-mail 2 - Type","E-mail 2 - Value","E-mail 3 - Type","E-mail 3 - Value","Phone 1 - Type","Phone 1 - Value","Organization 1 - Type","Organization 1 - Name","Organization 1 - Title","Organization 1 - Department","Group Membership"];
-    const rows=list.map(e=>{ const p=e.name.trim().split(/\s+/); return [e.name,p.slice(1).join(" "),p[0]||"",e.email_1?"Work":"",e.email_1,e.email_2?"Work":"",e.email_2,e.email_3?"Work":"",e.email_3,"Work",e.phone,"Work","Vállalat",e.position,uName(e.unit_id),`${uName(e.unit_id)} ::: * myContacts`]; });
-    const esc=v=>`"${(v||"").replace(/"/g,'""')}"`;
-    const csv=[headers,...rows].map(r=>r.map(esc).join(",")).join("\r\n");
-    const blob=new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8;"});
-    const url=URL.createObjectURL(blob); const a=document.createElement("a");
+    const orgName = labels.title || "Vállalat";
+    const hasEmail2 = list.some(e=>e.email_2);
+    const hasEmail3 = list.some(e=>e.email_3);
+    const headers = [
+      "First Name","Middle Name","Last Name",
+      "Phonetic First Name","Phonetic Middle Name","Phonetic Last Name",
+      "Name Prefix","Name Suffix","Nickname","File As",
+      "Organization Name","Organization Title","Organization Department",
+      "Birthday","Notes","Photo","Labels",
+      "E-mail 1 - Label","E-mail 1 - Value",
+      ...(hasEmail2?["E-mail 2 - Label","E-mail 2 - Value"]:[]),
+      ...(hasEmail3?["E-mail 3 - Label","E-mail 3 - Value"]:[]),
+      "Phone 1 - Label","Phone 1 - Value",
+    ];
+    const rows = list.map(e => {
+      const parts = e.name.trim().split(/\s+/);
+      const lastName  = parts[0]||"";
+      const firstName = parts.slice(1).join(" ");
+      const dept = e.unit_id!=null ? uName(e.unit_id) : "";
+      const label = dept ? `${dept} ::: * myContacts` : "* myContacts";
+      return [
+        firstName,"",lastName,
+        "","","","","","","",
+        orgName, e.position, dept,
+        "","","", label,
+        "*", e.email_1,
+        ...(hasEmail2?["*",e.email_2]:[]),
+        ...(hasEmail3?["*",e.email_3]:[]),
+        "Mobile", e.phone,
+      ];
+    });
+    const esc = v => `"${(v||"").replace(/"/g,'""')}"`;
+    const csv = [headers,...rows].map(r=>r.map(esc).join(",")).join("\r\n");
+    const blob = new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8;"});
+    const url = URL.createObjectURL(blob); const a = document.createElement("a");
     a.href=url; a.download=`google_contacts_${uId}.csv`; a.click(); URL.revokeObjectURL(url);
   };
-
   const handleExport = (type, scope, unitId) => {
     const list = scope==="all" ? employees.filter(e=>e.active) : employees.filter(e=>e.active&&e.unit_id===unitId);
     if (type==="xlsx") doXLSX(list); else doGoogleCSV(list);
@@ -265,7 +293,7 @@ export default function PhoneBook() {
   // ── Google CSV Import ────────────────────────────────────────────────────────
   const parseCSV = (text) => {
     const rows = []; let row = [], field = "", inQ = false;
-    const clean = text.replace(/\r\n/g,"\n").replace(/\r/g,"\n");
+    const clean = text.replace(/\uFEFF/,"").replace(/\r\n/g,"\n").replace(/\r/g,"\n");
     for (let i = 0; i < clean.length; i++) {
       const c = clean[i];
       if (inQ) {
@@ -290,25 +318,54 @@ export default function PhoneBook() {
     reader.onload = (ev) => {
       try {
         const rows = parseCSV(ev.target.result);
-        if (rows.length < 2) { alert("Üres vagy érvénytelen CSV fájl."); return; }
-        const headers = rows[0];
-        const col = (name) => headers.indexOf(name);
-        const parsed = rows.slice(1).map(r => ({
-          name:     r[col("Name")]||"",
-          position: r[col("Organization 1 - Title")]||"",
-          phone:    r[col("Phone 1 - Value")]||"",
-          email_1:  r[col("E-mail 1 - Value")]||"",
-          email_2:  r[col("E-mail 2 - Value")]||"",
-          email_3:  r[col("E-mail 3 - Value")]||"",
-          _dept:    r[col("Organization 1 - Department")]||"",
-          active:   true,
-          unit_id:  null,
-        })).filter(e => e.name.trim());
-        const withUnits = parsed.map(e => {
-          const match = units.find(u => u.name.toLowerCase()===e._dept.toLowerCase());
-          return { ...e, unit_id: match ? match.id : null };
+        if (rows.length < 2) { alert("A fájl üres vagy nem olvasható."); return; }
+        const hdrs = rows[0].map(h=>h.trim());
+        const col = (name) => hdrs.indexOf(name);
+        const hasFirst = col("First Name")>=0;
+        const hasLast  = col("Last Name")>=0;
+        const hasName  = col("Name")>=0;
+        if (!hasFirst && !hasLast && !hasName) {
+          alert("Nem ismert CSV formátum. Exportálj Google Névjegyek > Névjegyek > Összes névjegy menüből.");
+          return;
+        }
+        const existingEmails = new Set(employees.map(e=>e.email_1).filter(Boolean).map(s=>s.trim().toLowerCase()));
+        const warnings = [], errors = [], parsed = [];
+        rows.slice(1).forEach((r, idx) => {
+          const get = (name) => (r[col(name)]||"").trim();
+          let name = "";
+          if (hasFirst||hasLast) {
+            const fn = get("First Name"), ln = get("Last Name");
+            name = ln&&fn ? `${ln} ${fn}` : (ln||fn);
+          } else {
+            name = get("Name");
+          }
+          if (!name) return;
+          const labelsVal = get("Labels");
+          const deptFromLabels = labelsVal.includes(":::") ? labelsVal.split(":::")[0].trim() : "";
+          const deptFromOrg = get("Organization Department");
+          const deptRaw = deptFromLabels || deptFromOrg;
+          let unit_id = null;
+          if (deptRaw) {
+            const match = units.find(u=>u.name.toLowerCase()===deptRaw.toLowerCase());
+            if (match) unit_id = match.id;
+            else warnings.push(`${name}: ismeretlen egység – "${deptRaw}" (egység nélkül kerül be)`);
+          }
+          const email1 = get("E-mail 1 - Value");
+          if (email1 && existingEmails.has(email1.toLowerCase())) {
+            warnings.push(`${name}: az email (${email1}) már szerepel a rendszerben`);
+          }
+          parsed.push({
+            name, active:true, unit_id,
+            position: get("Organization Title"),
+            phone:    get("Phone 1 - Value"),
+            email_1:  email1,
+            email_2:  get("E-mail 2 - Value"),
+            email_3:  get("E-mail 3 - Value"),
+            _dept:    deptRaw,
+          });
         });
-        setImportRows(withUnits);
+        if (!parsed.length) { alert("Nem található importálható névjegy a fájlban."); return; }
+        setImportModal({ rows: parsed, warnings, errors });
       } catch(err) { alert("Hiba a fájl olvasásakor: "+err.message); }
       e.target.value = "";
     };
@@ -316,16 +373,16 @@ export default function PhoneBook() {
   };
 
   const doImport = async () => {
-    if (!importRows?.length) return;
+    if (!importModal?.rows?.length) return;
     setImporting(true);
     let ok=0, fail=0;
-    for (const emp of importRows) {
+    for (const emp of importModal.rows) {
       const { _dept, ...data } = emp;
       try { const n = await call("/api/employees","POST",data,token); setEmployees(p=>[...p,n]); ok++; }
       catch { fail++; }
     }
     setImporting(false);
-    setImportRows(null);
+    setImportModal(null);
     alert(`Import kész: ${ok} munkatárs hozzáadva${fail?`, ${fail} hiba`:""}.`);
   };
 
@@ -467,7 +524,7 @@ export default function PhoneBook() {
             {adminTab==="employees" && (
               <div style={{marginLeft:"auto",display:"flex",gap:"8px",alignItems:"center"}}>
                 <input ref={importInputRef} type="file" accept=".csv" onChange={handleImportFile} style={{display:"none"}}/>
-                <button onClick={()=>importInputRef.current?.click()} style={{display:"flex",alignItems:"center",gap:"6px",padding:"7px 14px",backgroundColor:dark?"#1e3347":"#f0fdf4",color:dark?"#4ade80":"#16a34a",border:`1px solid ${dark?"#166534":"#86efac"}`,borderRadius:"7px",fontSize:"13px",fontWeight:"600",cursor:"pointer"}}>📥 Importálás</button>
+                <button onClick={()=>importInputRef.current?.click()} style={{display:"flex",alignItems:"center",gap:"6px",padding:"7px 14px",backgroundColor:dark?"#1e3347":"#f0fdf4",color:dark?"#4ade80":"#16a34a",border:`1px solid ${dark?"#166534":"#86efac"}`,borderRadius:"7px",fontSize:"13px",fontWeight:"600",cursor:"pointer"}}>↑ Importálás</button>
                 <button onClick={()=>setEmpModal({...EMPTY_EMP})} style={{display:"flex",alignItems:"center",gap:"6px",padding:"7px 16px",backgroundColor:C.blue,color:"#fff",border:"none",borderRadius:"7px",fontSize:"13px",fontWeight:"600",cursor:"pointer",boxShadow:"0 2px 6px rgba(59,130,246,0.3)"}}>+ Új munkatárs</button>
               </div>
             )}
@@ -762,54 +819,62 @@ export default function PhoneBook() {
       })()}
 
       {/* ── IMPORT MODAL ── */}
-      {importRows && (
-        <Overlay onClose={()=>setImportRows(null)} C={C} wide>
+      {importModal && (
+        <Overlay onClose={()=>setImportModal(null)} C={C} wide>
           <div style={{marginBottom:"16px"}}>
-            <h2 style={{fontSize:"17px",fontWeight:"700",color:C.text,marginBottom:"4px"}}>📥 Google Névjegyek importálása</h2>
-            <p style={{fontSize:"12.5px",color:C.textMuted}}>{importRows.length} névjegy található a CSV-ben. Ellenőrizd az adatokat, majd kattints az Importálásra.</p>
+            <h2 style={{fontSize:"17px",fontWeight:"700",color:C.text,marginBottom:"4px"}}>↑ CSV Import előnézet</h2>
+            <p style={{fontSize:"12.5px",color:C.textMuted}}>
+              <b style={{color:C.text}}>{importModal.rows.length} munkatárs</b> importálható. Ellenőrizd az adatokat, majd kattints az Importálásra.
+            </p>
           </div>
-          <div style={{maxHeight:"340px",overflowY:"auto",border:`1px solid ${C.cardBorder}`,borderRadius:"10px",marginBottom:"16px"}}>
+
+          {importModal.warnings.length>0 && (
+            <div style={{padding:"10px 14px",backgroundColor:dark?"#2a1e00":"#fffbeb",border:`1px solid ${dark?"#92400e":"#fde68a"}`,borderRadius:"8px",marginBottom:"12px",maxHeight:"100px",overflowY:"auto"}}>
+              {importModal.warnings.map((w,i)=>(
+                <div key={i} style={{fontSize:"11.5px",color:dark?"#fcd34d":"#92400e",marginBottom:"2px"}}>⚠ {w}</div>
+              ))}
+            </div>
+          )}
+
+          <div style={{maxHeight:"280px",overflowY:"auto",border:`1px solid ${C.cardBorder}`,borderRadius:"10px",marginBottom:"16px"}}>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:"12.5px"}}>
               <thead>
                 <tr style={{backgroundColor:C.thBg,position:"sticky",top:0}}>
-                  {["Név","Beosztás","Telefon","Email 1","Egység"].map(h=>(
+                  {["Név","Beosztás","Email","Egység"].map(h=>(
                     <th key={h} style={{padding:"8px 12px",textAlign:"left",color:C.thText,fontWeight:"700",fontSize:"10.5px",textTransform:"uppercase",letterSpacing:"0.07em",whiteSpace:"nowrap"}}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {importRows.map((emp,i)=>(
+                {importModal.rows.slice(0,5).map((emp,i)=>(
                   <tr key={i} style={{backgroundColor:i%2===0?C.cardBg:C.cardBg2,borderBottom:`1px solid ${C.tdBorder}`}}>
                     <td style={{padding:"7px 12px",color:C.text,fontWeight:"600"}}>{emp.name}</td>
                     <td style={{padding:"7px 12px",color:C.tdTextLight}}>{emp.position||<span style={{color:C.textMuted}}>—</span>}</td>
-                    <td style={{padding:"7px 12px",color:C.tdTextMid,fontFamily:"monospace"}}>{emp.phone||<span style={{color:C.textMuted}}>—</span>}</td>
-                    <td style={{padding:"7px 12px",color:C.blueText}}>{emp.email_1||<span style={{color:C.textMuted}}>—</span>}</td>
+                    <td style={{padding:"7px 12px",color:C.blueText,fontSize:"12px"}}>{emp.email_1||<span style={{color:C.textMuted}}>—</span>}</td>
                     <td style={{padding:"7px 12px"}}>
                       {emp.unit_id
                         ? <span style={{backgroundColor:C.blueSoft,color:C.blueText,padding:"2px 8px",borderRadius:"20px",fontSize:"11.5px",fontWeight:"500"}}>{units.find(u=>u.id===emp.unit_id)?.name}</span>
                         : emp._dept
-                          ? <span style={{backgroundColor:dark?"#2a1e00":"#fef3c7",color:"#d97706",padding:"2px 8px",borderRadius:"20px",fontSize:"11.5px"}} title={`CSV: "${emp._dept}" – nem talált egyező egységet`}>⚠ {emp._dept}</span>
+                          ? <span style={{backgroundColor:dark?"#2a1e00":"#fef3c7",color:"#d97706",padding:"2px 8px",borderRadius:"20px",fontSize:"11.5px"}} title="Nem található egyező egység">⚠ {emp._dept}</span>
                           : <span style={{color:C.textMuted,fontSize:"11.5px"}}>—</span>}
                     </td>
                   </tr>
                 ))}
+                {importModal.rows.length>5 && (
+                  <tr><td colSpan={4} style={{padding:"8px 12px",textAlign:"center",color:C.textMuted,fontSize:"12px"}}>... és még {importModal.rows.length-5} névjegy</td></tr>
+                )}
               </tbody>
             </table>
           </div>
-          {importRows.some(e=>e._dept&&!e.unit_id) && (
-            <div style={{padding:"10px 14px",backgroundColor:dark?"#2a1e00":"#fffbeb",border:`1px solid ${dark?"#92400e":"#fde68a"}`,borderRadius:"8px",marginBottom:"14px",fontSize:"12px",color:dark?"#fcd34d":"#92400e"}}>
-              ⚠ Egyes egységek (sárga jelölés) nem találhatók a rendszerben – ezek a munkatársak „egység nélkül" kerülnek be.
-            </div>
-          )}
+
           <div style={{display:"flex",gap:"8px",justifyContent:"flex-end"}}>
-            <button onClick={()=>setImportRows(null)} style={cancelBtn(C)}>Mégse</button>
+            <button onClick={()=>setImportModal(null)} style={cancelBtn(C)}>Mégse</button>
             <button onClick={doImport} disabled={importing} style={{...saveBtn(C),backgroundColor:"#16a34a",opacity:importing?0.6:1,display:"flex",alignItems:"center",gap:"6px"}}>
-              {importing?"Importálás...":"📥 Importálás ("+importRows.length+" fő)"}
+              {importing?"Importálás...":"↑ Importálás ("+importModal.rows.length+" fő)"}
             </button>
           </div>
         </Overlay>
       )}
-
       {/* ── FELHASZNÁLÓ MODAL ── */}
       {userModal && (
         <Overlay onClose={()=>setUserModal(null)} C={C}>
