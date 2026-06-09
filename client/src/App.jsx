@@ -491,9 +491,23 @@ export default function PhoneBook() {
   const copyBtn = (value, key) => {
     if (!value) return null;
     const copied = copiedKey === key;
+    const doCopy = (e) => {
+      e.preventDefault();
+      const finish = () => { setCopiedKey(key); setTimeout(()=>setCopiedKey(null),1500); };
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(value.trim()).then(finish).catch(()=>{
+          const el=document.createElement('textarea'); el.value=value.trim();
+          document.body.appendChild(el); el.select(); document.execCommand('copy');
+          document.body.removeChild(el); finish();
+        });
+      } else {
+        const el=document.createElement('textarea'); el.value=value.trim();
+        document.body.appendChild(el); el.select(); document.execCommand('copy');
+        document.body.removeChild(el); finish();
+      }
+    };
     return (
-      <button onClick={(e) => { e.preventDefault(); navigator.clipboard.writeText(value.trim()).then(() => { setCopiedKey(key); setTimeout(()=>setCopiedKey(null),1500); }); }}
-        title="Vágólapra másolás"
+      <button onClick={doCopy} title="Vágólapra másolás"
         style={{background:"none",border:"none",cursor:"pointer",padding:"2px 4px",color:copied?"#16a34a":C.textMuted,fontSize:"11px",lineHeight:1,marginLeft:"4px",opacity:copied?1:0.5,transition:"all 0.2s",verticalAlign:"middle"}}>
         {copied?"✓":"⎘"}
       </button>
@@ -745,9 +759,10 @@ export default function PhoneBook() {
                             {emp.name.split(" ").slice(0,2).map(n=>n[0]).join("")}
                           </div>
                           <div>
-                            {isAdmin ? <div>{emp.name}</div> : (
-                              <div onClick={()=>downloadVCard(emp)} title="vCard letöltése" style={{cursor:"pointer",display:"inline"}} onMouseEnter={e=>e.currentTarget.style.textDecoration="underline"} onMouseLeave={e=>e.currentTarget.style.textDecoration="none"}>{emp.name}</div>
-                            )}
+                            <div style={{display:"flex",alignItems:"center",gap:"5px"}}>
+                              <span>{emp.name}</span>
+                              <button onClick={()=>downloadVCard(emp)} title="vCard letöltése" style={{background:"none",border:"none",cursor:"pointer",padding:"1px 3px",fontSize:"12px",lineHeight:1,color:C.textMuted,opacity:0.6,transition:"opacity 0.15s"}} onMouseEnter={e=>e.currentTarget.style.opacity="1"} onMouseLeave={e=>e.currentTarget.style.opacity="0.6"}>📇</button>
+                            </div>
                             {!emp.active && <span style={{fontSize:"10px",backgroundColor:dark?"#2a1e00":"#fef3c7",color:"#d97706",padding:"1px 6px",borderRadius:"8px",fontWeight:"700"}}>ARCHIVÁLT</span>}
                           </div>
                         </div>
