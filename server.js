@@ -25,8 +25,9 @@ db.pragma('foreign_keys = ON');
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS units (
-    id   INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT    NOT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0
   );
 
   CREATE TABLE IF NOT EXISTS employees (
@@ -53,13 +54,29 @@ db.exec(`
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS audit_log (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts         TEXT    NOT NULL,
+    user_id    INTEGER,
+    username   TEXT,
+    action     TEXT    NOT NULL,
+    entity     TEXT    NOT NULL,
+    entity_id  INTEGER,
+    detail     TEXT
+  );
 `);
+
+// sort_order oszlop hozzáadása meglévő adatbázishoz (migráció)
+try {
+  db.exec('ALTER TABLE units ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0');
+} catch {}
 
 // Alap adatok feltöltése (csak üres adatbázisnál)
 const seed = db.transaction(() => {
   if (!db.prepare('SELECT 1 FROM units LIMIT 1').get()) {
-    const ins = db.prepare('INSERT INTO units (name) VALUES (?)');
-    ['IT', 'HR', 'Értékesítés', 'Pénzügy', 'Logisztika'].forEach(n => ins.run(n));
+    const ins = db.prepare('INSERT INTO units (name, sort_order) VALUES (?,?)');
+    ['IT', 'HR', 'Értékesítés', 'Pénzügy', 'Logisztika'].forEach((n, i) => ins.run(n, i + 1));
   }
   if (!db.prepare('SELECT 1 FROM users LIMIT 1').get()) {
     db.prepare('INSERT INTO users (username,password,display_name,role) VALUES (?,?,?,?)')
@@ -73,6 +90,16 @@ const seed = db.transaction(() => {
   }
 });
 seed();
+
+// ── Audit log helper ──────────────────────────────────────────────────────────
+const log = (user, action, entity, entityId, detail) => {
+  try {
+    db.prepare('INSERT INTO audit_log (ts,user_id,username,action,entity,entity_id,detail) VALUES (?,?,?,?,?,?,?)')
+      .run(new Date().toISOString(), user?.id||null, user?.username||null, action, entity, entityId||null, detail||null);
+  } catch (e) {
+    console.error('Audit log hiba:', e);
+  }
+};
 
 // ── Hitelesítés middleware ────────────────────────────────────────────────────
 const auth = (req, res, next) => {
@@ -108,32 +135,61 @@ app.post('/api/auth/login', (req, res) => {
 
   const payload = { id: user.id, username: user.username, role: user.role, displayName: user.display_name };
   const token   = jwt.sign(payload, JWT_SECRET, { expiresIn: '8h' });
+  log(payload, 'LOGIN', 'users', user.id, null);
   res.json({ token, user: payload });
+});
+
+app.post('/api/auth/logout', auth, (req, res) => {
+  log(req.user, 'LOGOUT', 'users', req.user.id, null);
+  res.json({ ok: true });
 });
 
 // ── Egységek (units) ──────────────────────────────────────────────────────────
 app.get('/api/units', (_req, res) => {
-  res.json(db.prepare('SELECT * FROM units ORDER BY name').all());
+  res.json(db.prepare('SELECT * FROM units ORDER BY sort_order ASC, id ASC').all());
 });
 
 app.post('/api/units', auth, (req, res) => {
   const { name } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'Név megadása kötelező' });
-  const r = db.prepare('INSERT INTO units (name) VALUES (?)').run(name.trim());
-  res.status(201).json(db.prepare('SELECT * FROM units WHERE id = ?').get(r.lastInsertRowid));
+  const maxOrder = db.prepare('SELECT COALESCE(MAX(sort_order),0) as m FROM units').get().m;
+  const r = db.prepare('INSERT INTO units (name, sort_order) VALUES (?,?)').run(name.trim(), maxOrder + 1);
+  const unit = db.prepare('SELECT * FROM units WHERE id = ?').get(r.lastInsertRowid);
+  log(req.user, 'CREATE', 'units', unit.id, name.trim());
+  res.status(201).json(unit);
 });
 
 app.put('/api/units/:id', auth, (req, res) => {
   const { name } = req.body;
   db.prepare('UPDATE units SET name = ? WHERE id = ?').run(name, req.params.id);
   const unit = db.prepare('SELECT * FROM units WHERE id = ?').get(req.params.id);
-  unit ? res.json(unit) : res.status(404).json({ error: 'Nem található' });
+  if (!unit) return res.status(404).json({ error: 'Nem található' });
+  log(req.user, 'UPDATE', 'units', unit.id, name);
+  res.json(unit);
 });
 
 app.delete('/api/units/:id', auth, (req, res) => {
-  // Az egységhez tartozó munkatársak unit_id-ját null-ra állítja (ON DELETE SET NULL)
+  const unit = db.prepare('SELECT * FROM units WHERE id = ?').get(req.params.id);
   db.prepare('DELETE FROM units WHERE id = ?').run(req.params.id);
+  log(req.user, 'DELETE', 'units', parseInt(req.params.id), unit?.name||null);
   res.json({ ok: true });
+});
+
+app.post('/api/units/reorder', auth, (req, res) => {
+  const { id, direction } = req.body;
+  const units = db.prepare('SELECT * FROM units ORDER BY sort_order ASC, id ASC').all();
+  const idx = units.findIndex(u => u.id === id);
+  if (idx < 0) return res.status(404).json({ error: 'Nem található' });
+  const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+  if (swapIdx < 0 || swapIdx >= units.length) return res.json({ ok: true });
+  const a = units[idx], b = units[swapIdx];
+  const update = db.prepare('UPDATE units SET sort_order = ? WHERE id = ?');
+  db.transaction(() => {
+    update.run(b.sort_order, a.id);
+    update.run(a.sort_order, b.id);
+  })();
+  log(req.user, 'REORDER', 'units', id, direction);
+  res.json(db.prepare('SELECT * FROM units ORDER BY sort_order ASC, id ASC').all());
 });
 
 // ── Munkatársak (employees) ───────────────────────────────────────────────────
@@ -163,7 +219,9 @@ app.post('/api/employees', auth, (req, res) => {
   const r = db.prepare(
     'INSERT INTO employees (name,position,phone,email_1,email_2,email_3,unit_id,active) VALUES (?,?,?,?,?,?,?,?)'
   ).run(name, position||'', phone||'', email_1||'', email_2||'', email_3||'', unit_id||null, active?1:0);
-  res.status(201).json(normalizeEmp(db.prepare('SELECT * FROM employees WHERE id = ?').get(r.lastInsertRowid)));
+  const emp = normalizeEmp(db.prepare('SELECT * FROM employees WHERE id = ?').get(r.lastInsertRowid));
+  log(req.user, 'CREATE', 'employees', emp.id, name);
+  res.status(201).json(emp);
 });
 
 app.put('/api/employees/:id', auth, (req, res) => {
@@ -172,11 +230,15 @@ app.put('/api/employees/:id', auth, (req, res) => {
     'UPDATE employees SET name=?,position=?,phone=?,email_1=?,email_2=?,email_3=?,unit_id=?,active=? WHERE id=?'
   ).run(name, position||'', phone||'', email_1||'', email_2||'', email_3||'', unit_id||null, active?1:0, req.params.id);
   const emp = db.prepare('SELECT * FROM employees WHERE id = ?').get(req.params.id);
-  emp ? res.json(normalizeEmp(emp)) : res.status(404).json({ error: 'Nem található' });
+  if (!emp) return res.status(404).json({ error: 'Nem található' });
+  log(req.user, 'UPDATE', 'employees', emp.id, name);
+  res.json(normalizeEmp(emp));
 });
 
 app.delete('/api/employees/:id', auth, (req, res) => {
+  const emp = db.prepare('SELECT * FROM employees WHERE id = ?').get(req.params.id);
   db.prepare('DELETE FROM employees WHERE id = ?').run(req.params.id);
+  log(req.user, 'DELETE', 'employees', parseInt(req.params.id), emp?.name||null);
   res.json({ ok: true });
 });
 
@@ -194,6 +256,7 @@ app.post('/api/users', auth, superadminOnly, (req, res) => {
   try {
     const r = db.prepare('INSERT INTO users (username,password,display_name,role) VALUES (?,?,?,?)')
       .run(username.trim(), bcrypt.hashSync(password, 10), displayName, role || 'editor');
+    log(req.user, 'CREATE', 'users', r.lastInsertRowid, username.trim());
     res.status(201).json({ id: r.lastInsertRowid, username: username.trim(), displayName, role: role || 'editor' });
   } catch {
     res.status(409).json({ error: 'Ez a felhasználónév már foglalt' });
@@ -209,6 +272,7 @@ app.put('/api/users/:id', auth, superadminOnly, (req, res) => {
     db.prepare('UPDATE users SET username=?,display_name=?,role=? WHERE id=?')
       .run(username, displayName, role, req.params.id);
   }
+  log(req.user, 'UPDATE', 'users', parseInt(req.params.id), username);
   res.json({ id: parseInt(req.params.id), username, displayName, role });
 });
 
@@ -218,6 +282,7 @@ app.delete('/api/users/:id', auth, superadminOnly, (req, res) => {
   if (target?.role === 'superadmin' && superCount <= 1)
     return res.status(400).json({ error: 'Az utolsó főadmin nem törölhető!' });
   db.prepare('DELETE FROM users WHERE id=?').run(req.params.id);
+  log(req.user, 'DELETE', 'users', parseInt(req.params.id), target?.username||null);
   res.json({ ok: true });
 });
 
@@ -233,7 +298,14 @@ app.put('/api/settings', auth, (req, res) => {
   const upsert = db.prepare('INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)');
   const txn    = db.transaction(data => Object.entries(data).forEach(([k, v]) => upsert.run(k, v)));
   txn(req.body);
+  log(req.user, 'UPDATE', 'settings', null, JSON.stringify(req.body));
   res.json({ ok: true });
+});
+
+// ── Audit log ─────────────────────────────────────────────────────────────────
+app.get('/api/audit', auth, superadminOnly, (req, res) => {
+  const rows = db.prepare('SELECT * FROM audit_log ORDER BY id DESC LIMIT 200').all();
+  res.json(rows);
 });
 
 // ── SPA fallback (React Router kompatibilis) ──────────────────────────────────
