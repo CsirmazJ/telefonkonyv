@@ -72,6 +72,15 @@ try {
   db.exec('ALTER TABLE units ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0');
 } catch {}
 
+// Meglévő egységek sort_order inicializálása (ha mind 0)
+const zeroCount = db.prepare('SELECT COUNT(*) as c FROM units WHERE sort_order=0').get().c;
+const totalCount = db.prepare('SELECT COUNT(*) as c FROM units').get().c;
+if (zeroCount === totalCount && totalCount > 1) {
+  const existing = db.prepare('SELECT id FROM units ORDER BY name ASC').all();
+  const upd = db.prepare('UPDATE units SET sort_order=? WHERE id=?');
+  db.transaction(() => { existing.forEach((u, i) => upd.run(i + 1, u.id)); })();
+}
+
 // Alap adatok feltöltése (csak üres adatbázisnál)
 const seed = db.transaction(() => {
   if (!db.prepare('SELECT 1 FROM units LIMIT 1').get()) {
