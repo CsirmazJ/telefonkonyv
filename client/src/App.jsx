@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import * as XLSX from "xlsx";
 
 // ─── API helper ───────────────────────────────────────────────────────────────
@@ -83,6 +83,9 @@ export default function PhoneBook() {
   const [userModal,       setUserModal]       = useState(null);
   const [deleteConfirm,   setDeleteConfirm]   = useState(null);
   const [deleteUnitConfirm, setDeleteUnitConfirm] = useState(null);
+  const [importRows,      setImportRows]      = useState(null);
+  const [importing,       setImporting]       = useState(false);
+  const importInputRef = useRef(null);
 
   const C          = dark ? DARK : LIGHT;
   const isAdmin    = currentUser !== null;
@@ -259,6 +262,73 @@ export default function PhoneBook() {
     setExportModal(null);
   };
 
+  // ── Google CSV Import ────────────────────────────────────────────────────────
+  const parseCSV = (text) => {
+    const rows = []; let row = [], field = "", inQ = false;
+    const clean = text.replace(/\r\n/g,"\n").replace(/\r/g,"\n");
+    for (let i = 0; i < clean.length; i++) {
+      const c = clean[i];
+      if (inQ) {
+        if (c==='"' && clean[i+1]==='"') { field+='"'; i++; }
+        else if (c==='"') inQ=false;
+        else field+=c;
+      } else {
+        if (c==='"') inQ=true;
+        else if (c===',') { row.push(field); field=""; }
+        else if (c==='\n') { row.push(field); field=""; if(row.some(Boolean)) rows.push(row); row=[]; }
+        else field+=c;
+      }
+    }
+    if (field||row.length) { row.push(field); if(row.some(Boolean)) rows.push(row); }
+    return rows;
+  };
+
+  const handleImportFile = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const rows = parseCSV(ev.target.result);
+        if (rows.length < 2) { alert("Üres vagy érvénytelen CSV fájl."); return; }
+        const headers = rows[0];
+        const col = (name) => headers.indexOf(name);
+        const parsed = rows.slice(1).map(r => ({
+          name:     r[col("Name")]||"",
+          position: r[col("Organization 1 - Title")]||"",
+          phone:    r[col("Phone 1 - Value")]||"",
+          email_1:  r[col("E-mail 1 - Value")]||"",
+          email_2:  r[col("E-mail 2 - Value")]||"",
+          email_3:  r[col("E-mail 3 - Value")]||"",
+          _dept:    r[col("Organization 1 - Department")]||"",
+          active:   true,
+          unit_id:  null,
+        })).filter(e => e.name.trim());
+        const withUnits = parsed.map(e => {
+          const match = units.find(u => u.name.toLowerCase()===e._dept.toLowerCase());
+          return { ...e, unit_id: match ? match.id : null };
+        });
+        setImportRows(withUnits);
+      } catch(err) { alert("Hiba a fájl olvasásakor: "+err.message); }
+      e.target.value = "";
+    };
+    reader.readAsText(file, "UTF-8");
+  };
+
+  const doImport = async () => {
+    if (!importRows?.length) return;
+    setImporting(true);
+    let ok=0, fail=0;
+    for (const emp of importRows) {
+      const { _dept, ...data } = emp;
+      try { const n = await call("/api/employees","POST",data,token); setEmployees(p=>[...p,n]); ok++; }
+      catch { fail++; }
+    }
+    setImporting(false);
+    setImportRows(null);
+    alert(`Import kész: ${ok} munkatárs hozzáadva${fail?`, ${fail} hiba`:""}.`);
+  };
+
   // ── Beállítások mentése ──────────────────────────────────────────────────────
   const saveLabels = async () => {
     try {
@@ -394,7 +464,13 @@ export default function PhoneBook() {
                 </button>
               ))}
             </div>
-            {adminTab==="employees" && <button onClick={()=>setEmpModal({...EMPTY_EMP})} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:"6px",padding:"7px 16px",backgroundColor:C.blue,color:"#fff",border:"none",borderRadius:"7px",fontSize:"13px",fontWeight:"600",cursor:"pointer",boxShadow:"0 2px 6px rgba(59,130,246,0.3)"}}>+ Új munkatárs</button>}
+            {adminTab==="employees" && (
+              <div style={{marginLeft:"auto",display:"flex",gap:"8px",alignItems:"center"}}>
+                <input ref={importInputRef} type="file" accept=".csv" onChange={handleImportFile} style={{display:"none"}}/>
+                <button onClick={()=>importInputRef.current?.click()} style={{display:"flex",alignItems:"center",gap:"6px",padding:"7px 14px",backgroundColor:dark?"#1e3347":"#f0fdf4",color:dark?"#4ade80":"#16a34a",border:`1px solid ${dark?"#166534":"#86efac"}`,borderRadius:"7px",fontSize:"13px",fontWeight:"600",cursor:"pointer"}}>📥 Importálás</button>
+                <button onClick={()=>setEmpModal({...EMPTY_EMP})} style={{display:"flex",alignItems:"center",gap:"6px",padding:"7px 16px",backgroundColor:C.blue,color:"#fff",border:"none",borderRadius:"7px",fontSize:"13px",fontWeight:"600",cursor:"pointer",boxShadow:"0 2px 6px rgba(59,130,246,0.3)"}}>+ Új munkatárs</button>
+              </div>
+            )}
             {adminTab==="units"     && <button onClick={()=>setUnitModal({name:""})} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:"6px",padding:"7px 16px",backgroundColor:C.blue,color:"#fff",border:"none",borderRadius:"7px",fontSize:"13px",fontWeight:"600",cursor:"pointer",boxShadow:"0 2px 6px rgba(59,130,246,0.3)"}}>+ Új {labels.units.toLowerCase().replace(/k$/,"")}</button>}
             {adminTab==="users" && isSuperAdmin && <button onClick={()=>setUserModal({username:"",password:"",displayName:"",role:"editor"})} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:"6px",padding:"7px 16px",backgroundColor:C.blue,color:"#fff",border:"none",borderRadius:"7px",fontSize:"13px",fontWeight:"600",cursor:"pointer",boxShadow:"0 2px 6px rgba(59,130,246,0.3)"}}>+ Új felhasználó</button>}
           </div>
@@ -684,6 +760,55 @@ export default function PhoneBook() {
           </Overlay>
         );
       })()}
+
+      {/* ── IMPORT MODAL ── */}
+      {importRows && (
+        <Overlay onClose={()=>setImportRows(null)} C={C} wide>
+          <div style={{marginBottom:"16px"}}>
+            <h2 style={{fontSize:"17px",fontWeight:"700",color:C.text,marginBottom:"4px"}}>📥 Google Névjegyek importálása</h2>
+            <p style={{fontSize:"12.5px",color:C.textMuted}}>{importRows.length} névjegy található a CSV-ben. Ellenőrizd az adatokat, majd kattints az Importálásra.</p>
+          </div>
+          <div style={{maxHeight:"340px",overflowY:"auto",border:`1px solid ${C.cardBorder}`,borderRadius:"10px",marginBottom:"16px"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:"12.5px"}}>
+              <thead>
+                <tr style={{backgroundColor:C.thBg,position:"sticky",top:0}}>
+                  {["Név","Beosztás","Telefon","Email 1","Egység"].map(h=>(
+                    <th key={h} style={{padding:"8px 12px",textAlign:"left",color:C.thText,fontWeight:"700",fontSize:"10.5px",textTransform:"uppercase",letterSpacing:"0.07em",whiteSpace:"nowrap"}}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {importRows.map((emp,i)=>(
+                  <tr key={i} style={{backgroundColor:i%2===0?C.cardBg:C.cardBg2,borderBottom:`1px solid ${C.tdBorder}`}}>
+                    <td style={{padding:"7px 12px",color:C.text,fontWeight:"600"}}>{emp.name}</td>
+                    <td style={{padding:"7px 12px",color:C.tdTextLight}}>{emp.position||<span style={{color:C.textMuted}}>—</span>}</td>
+                    <td style={{padding:"7px 12px",color:C.tdTextMid,fontFamily:"monospace"}}>{emp.phone||<span style={{color:C.textMuted}}>—</span>}</td>
+                    <td style={{padding:"7px 12px",color:C.blueText}}>{emp.email_1||<span style={{color:C.textMuted}}>—</span>}</td>
+                    <td style={{padding:"7px 12px"}}>
+                      {emp.unit_id
+                        ? <span style={{backgroundColor:C.blueSoft,color:C.blueText,padding:"2px 8px",borderRadius:"20px",fontSize:"11.5px",fontWeight:"500"}}>{units.find(u=>u.id===emp.unit_id)?.name}</span>
+                        : emp._dept
+                          ? <span style={{backgroundColor:dark?"#2a1e00":"#fef3c7",color:"#d97706",padding:"2px 8px",borderRadius:"20px",fontSize:"11.5px"}} title={`CSV: "${emp._dept}" – nem talált egyező egységet`}>⚠ {emp._dept}</span>
+                          : <span style={{color:C.textMuted,fontSize:"11.5px"}}>—</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {importRows.some(e=>e._dept&&!e.unit_id) && (
+            <div style={{padding:"10px 14px",backgroundColor:dark?"#2a1e00":"#fffbeb",border:`1px solid ${dark?"#92400e":"#fde68a"}`,borderRadius:"8px",marginBottom:"14px",fontSize:"12px",color:dark?"#fcd34d":"#92400e"}}>
+              ⚠ Egyes egységek (sárga jelölés) nem találhatók a rendszerben – ezek a munkatársak „egység nélkül" kerülnek be.
+            </div>
+          )}
+          <div style={{display:"flex",gap:"8px",justifyContent:"flex-end"}}>
+            <button onClick={()=>setImportRows(null)} style={cancelBtn(C)}>Mégse</button>
+            <button onClick={doImport} disabled={importing} style={{...saveBtn(C),backgroundColor:"#16a34a",opacity:importing?0.6:1,display:"flex",alignItems:"center",gap:"6px"}}>
+              {importing?"Importálás...":"📥 Importálás ("+importRows.length+" fő)"}
+            </button>
+          </div>
+        </Overlay>
+      )}
 
       {/* ── FELHASZNÁLÓ MODAL ── */}
       {userModal && (
