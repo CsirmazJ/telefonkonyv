@@ -18,6 +18,13 @@ const call = async (url, method = "GET", body = null, token = null) => {
 // ─── Üres munkatárs sablon ────────────────────────────────────────────────────
 const EMPTY_EMP = { name: "", position: "", phone: "", email_1: "", email_2: "", email_3: "", unit_id: null, active: true };
 
+// ─── Telefonszám formázó (Google-stílus: +36703631372) ────────────────────────
+const fmtPhone = (p) => {
+  if (!p) return "";
+  const digits = p.replace(/[^\d+]/g, "").replace(/(?!^)\+/g, "");
+  return digits;
+};
+
 // ─── Színsémák ────────────────────────────────────────────────────────────────
 const LIGHT = {
   pageBg:"#f8fafc",header:"#0d1b2e",headerBorder:"#1e3a5f",tabBar:"#162032",tabBorder:"#1e3a5f",
@@ -120,7 +127,7 @@ export default function PhoneBook() {
   }, [token]);
 
   // ── Segédfüggvények ──────────────────────────────────────────────────────────
-  const uName    = useCallback((uid) => uid == null ? `Nincs ${labels.units}` : (units.find(u => u.id===uid)?.name||"–"), [units, labels.units]);
+  const uName    = useCallback((uid) => uid == null ? "Nincs" : (units.find(u => u.id===uid)?.name||"–"), [units]);
   const empCount = (uid) => uid==="unassigned"
     ? employees.filter(e=>e.unit_id==null&&(isAdmin||e.active)).length
     : employees.filter(e=>e.unit_id===uid&&(isAdmin||e.active)).length;
@@ -573,7 +580,7 @@ export default function PhoneBook() {
                         </div>
                       </td>
                       <td style={{...TD,color:C.tdTextLight,fontSize:"13px"}}>{emp.position}</td>
-                      <td style={TD}><span style={{fontFamily:"'JetBrains Mono','Courier New',monospace",fontSize:"12.5px",color:C.tdTextMid}}>{emp.phone}</span></td>
+                      <td style={TD}><span style={{fontFamily:"'JetBrains Mono','Courier New',monospace",fontSize:"12.5px",color:C.tdTextMid}}>{fmtPhone(emp.phone)}</span></td>
                       <td style={TD}>
                         {[emp.email_1,emp.email_2,emp.email_3].filter(Boolean).map((em,i)=>(
                           <div key={i} style={{marginBottom:i<2?"2px":0}}>
