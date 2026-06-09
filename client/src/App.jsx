@@ -776,7 +776,7 @@ export default function PhoneBook() {
                           </div>
                           <div>
                             <div style={{display:"flex",alignItems:"center",gap:"5px"}}>
-                              <div onClick={()=>downloadVCard(emp)} title="vCard letöltése" style={{cursor:"pointer",display:"inline"}} onMouseEnter={e=>e.currentTarget.style.textDecoration="underline"} onMouseLeave={e=>e.currentTarget.style.textDecoration="none"}>{emp.name}</div>
+                              <span>{emp.name}</span>
                               <button onClick={()=>downloadVCard(emp)} title="vCard letöltése" style={{background:"none",border:"none",cursor:"pointer",padding:"1px 3px",fontSize:"12px",lineHeight:1,color:C.textMuted,opacity:0.6,transition:"opacity 0.15s"}} onMouseEnter={e=>e.currentTarget.style.opacity="1"} onMouseLeave={e=>e.currentTarget.style.opacity="0.6"}>📇</button>
                             </div>
                             {!emp.active && <span style={{fontSize:"10px",backgroundColor:dark?"#2a1e00":"#fef3c7",color:"#d97706",padding:"1px 6px",borderRadius:"8px",fontWeight:"700"}}>ARCHIVÁLT</span>}
