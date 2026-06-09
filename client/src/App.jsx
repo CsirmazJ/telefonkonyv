@@ -93,6 +93,7 @@ export default function PhoneBook() {
   const [importModal,     setImportModal]     = useState(null); // null | { rows, warnings, errors }
   const [importing,       setImporting]       = useState(false);
   const [toast,           setToast]           = useState(null);
+  const [auditLog,        setAuditLog]        = useState([]);
   const importInputRef = useRef(null);
 
   const showToast = (message, type="success") => {
@@ -128,9 +129,14 @@ export default function PhoneBook() {
   }, []);
 
   useEffect(() => {
-    if (!token) { setUsers([]); return; }
+    if (!token) { setUsers([]); setAuditLog([]); return; }
     call("/api/users", "GET", null, token).then(setUsers).catch(console.error);
   }, [token]);
+
+  useEffect(() => {
+    if (!token || currentUser?.role !== "superadmin") return;
+    call("/api/audit", "GET", null, token).then(setAuditLog).catch(console.error);
+  }, [token, currentUser, adminTab]);
 
   // ── Segédfüggvények ──────────────────────────────────────────────────────────
   const uName    = useCallback((uid) => uid == null ? "Nincs" : (units.find(u => u.id===uid)?.name||"–"), [units]);
@@ -166,7 +172,10 @@ export default function PhoneBook() {
       setLoginOpen(false); setLoginUser(""); setLoginPw(""); setLoginErr("");
     } catch(e) { setLoginErr(e.message); }
   };
-  const logout = () => { setCurrentUser(null); setToken(null); setAdminTab("employees"); };
+  const logout = async () => {
+    try { await call("/api/auth/logout", "POST", null, token); } catch {}
+    setCurrentUser(null); setToken(null); setAdminTab("employees");
+  };
 
   // ── CRUD: Munkatársak ────────────────────────────────────────────────────────
   const saveEmp = async (emp) => {
@@ -226,6 +235,13 @@ export default function PhoneBook() {
       setEmployees(p=>p.map(e=>e.unit_id===id?{...e,unit_id:null}:e));
       setDeleteUnitConfirm(null);
       showToast("Egység törölve");
+    } catch(e) { showToast("Hiba: "+e.message,"error"); }
+  };
+
+  const moveUnit = async (id, direction) => {
+    try {
+      const updated = await call("/api/units/reorder","POST",{id,direction},token);
+      setUnits(updated);
     } catch(e) { showToast("Hiba: "+e.message,"error"); }
   };
 
@@ -444,10 +460,24 @@ export default function PhoneBook() {
         ::-webkit-scrollbar-thumb{background:${dark?"#1e3347":"#cbd5e1"};border-radius:3px;}
         .export-dd button:hover{background-color:${dark?"#162540":"#eff6ff"} !important;}
         @keyframes slideUp{from{transform:translateY(16px);opacity:0}to{transform:translateY(0);opacity:1}}
+        @media print{
+          header,footer,.no-print{display:none!important;}
+          body{background:#fff!important;}
+          .print-header{display:block!important;}
+          table{page-break-inside:auto;}
+          tr{page-break-inside:avoid;}
+        }
+        .print-header{display:none;}
       `}</style>
 
+      {/* ── NYOMTATÁS FEJLÉC (csak printnél látható) ── */}
+      <div className="print-header" style={{padding:"12px 20px",borderBottom:"2px solid #0d1b2e",marginBottom:"12px"}}>
+        <h1 style={{fontSize:"20px",fontWeight:"700",margin:0}}>{labels.title}</h1>
+        <div style={{fontSize:"12px",color:"#475569",marginTop:"4px"}}>{new Date().toLocaleDateString("hu-HU")} – {filtered.length} munkatárs</div>
+      </div>
+
       {/* ── FEJLÉC ── */}
-      <header style={{backgroundColor:C.header,height:"58px",padding:"0 20px",display:"flex",alignItems:"center",gap:"14px",flexShrink:0,borderBottom:`1px solid ${C.headerBorder}`}}>
+      <header className="no-print" style={{backgroundColor:C.header,height:"58px",padding:"0 20px",display:"flex",alignItems:"center",gap:"14px",flexShrink:0,borderBottom:`1px solid ${C.headerBorder}`}}>
         <div style={{display:"flex",alignItems:"center",gap:"9px",flexShrink:0}}>
           <div style={{width:"30px",height:"30px",background:"linear-gradient(135deg,#3b82f6,#1d4ed8)",borderRadius:"8px",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"14px",boxShadow:"0 2px 6px rgba(59,130,246,0.4)"}}>📋</div>
           <span style={{color:"#ffffff",fontWeight:"700",fontSize:"15px",letterSpacing:"-0.02em"}}>{labels.title}</span>
@@ -510,7 +540,7 @@ export default function PhoneBook() {
       </header>
 
       {/* ── EGYSÉG SZŰRŐ SÁV ── */}
-      <div style={{backgroundColor:C.tabBar,borderBottom:`1px solid ${C.tabBorder}`,display:"flex",alignItems:"stretch",overflowX:"auto",flexShrink:0,padding:"0 16px"}}>
+      <div className="no-print" style={{backgroundColor:C.tabBar,borderBottom:`1px solid ${C.tabBorder}`,display:"flex",alignItems:"stretch",overflowX:"auto",flexShrink:0,padding:"0 16px"}}>
         {[{id:null,name:`Összes ${labels.units}`},...units].map(u=>{
           const active=selUnit===u.id;
           return (
@@ -537,7 +567,7 @@ export default function PhoneBook() {
         {isAdmin && (
           <div style={{display:"flex",alignItems:"center",gap:"10px",marginBottom:"16px",flexWrap:"wrap"}}>
             <div style={{display:"flex",backgroundColor:C.segmentBg,borderRadius:"8px",padding:"3px",gap:"3px"}}>
-              {[{v:"employees",l:labels.employees},{v:"units",l:labels.units},{v:"users",l:"👥 Felhasználók"},{v:"settings",l:"⚙️ Beállítások"}].map(t=>(
+              {[{v:"employees",l:labels.employees},{v:"units",l:labels.units},{v:"users",l:"👥 Felhasználók"},{v:"settings",l:"⚙️ Beállítások"},...(isSuperAdmin?[{v:"log",l:"📋 Log"}]:[])].map(t=>(
                 <button key={t.v} onClick={()=>setAdminTab(t.v)}
                   style={{padding:"5px 14px",backgroundColor:adminTab===t.v?C.segmentActive:"transparent",color:adminTab===t.v?C.text:C.textLight,border:"none",borderRadius:"6px",fontSize:"12.5px",fontWeight:adminTab===t.v?"600":"400",cursor:"pointer",boxShadow:adminTab===t.v?"0 1px 3px rgba(0,0,0,0.15)":"none",transition:"all 0.15s"}}>
                   {t.l}
@@ -564,6 +594,7 @@ export default function PhoneBook() {
             {selUnit==="unassigned" && <><span>·</span><span style={{color:"#d97706"}}>{labels.units} nélkül</span></>}
             {search && <><span>·</span><span>keresés: <b style={{color:C.textLight}}>{search}</b></span></>}
             {isAdmin && employees.filter(e=>!e.active).length>0 && <span style={{marginLeft:"auto",color:C.amber,fontSize:"11.5px"}}>⚠ {employees.filter(e=>!e.active).length} archivált munkatárs is látható</span>}
+            {!isAdmin && <button className="no-print" onClick={()=>window.print()} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:"5px",padding:"5px 12px",backgroundColor:dark?"#1e3347":"#f1f5f9",border:`1px solid ${C.cardBorder}`,borderRadius:"7px",color:C.textMid,fontSize:"12px",cursor:"pointer"}}>🖨 Nyomtatás</button>}
           </div>
         )}
 
@@ -599,7 +630,7 @@ export default function PhoneBook() {
                         </div>
                       </td>
                       <td style={{...TD,color:C.tdTextLight,fontSize:"13px"}}>{emp.position}</td>
-                      <td style={TD}><span style={{fontFamily:"'JetBrains Mono','Courier New',monospace",fontSize:"12.5px",color:C.tdTextMid}}>{fmtPhone(emp.phone)}</span></td>
+                      <td style={TD}>{fmtPhone(emp.phone)?<a href={`tel:${fmtPhone(emp.phone)}`} style={{fontFamily:"'JetBrains Mono','Courier New',monospace",fontSize:"12.5px",color:C.tdTextMid,textDecoration:"none"}} onMouseEnter={e=>e.target.style.textDecoration="underline"} onMouseLeave={e=>e.target.style.textDecoration="none"}>{fmtPhone(emp.phone)}</a>:<span style={{color:C.textMuted}}>—</span>}</td>
                       <td style={TD}>
                         {[emp.email_1,emp.email_2,emp.email_3].filter(Boolean).map((em,i)=>(
                           <div key={i} style={{marginBottom:i<2?"2px":0}}>
@@ -646,6 +677,8 @@ export default function PhoneBook() {
                       <td style={TD}>{actC} fő</td>
                       <td style={TD}>{archC>0?<span style={{color:"#d97706"}}>{archC} fő</span>:<span style={{color:C.textMuted}}>–</span>}</td>
                       <td style={{...TD,whiteSpace:"nowrap"}}>
+                        <button onClick={()=>moveUnit(unit.id,"up")} disabled={idx===0} title="Fel" style={{padding:"4px 8px",backgroundColor:dark?"#162032":"#f1f5f9",color:idx===0?C.textMuted:C.textMid,border:`1px solid ${C.cardBorder}`,borderRadius:"5px",fontSize:"12px",cursor:idx===0?"default":"pointer",marginRight:"4px",opacity:idx===0?0.4:1}}>▲</button>
+                        <button onClick={()=>moveUnit(unit.id,"down")} disabled={idx===units.length-1} title="Le" style={{padding:"4px 8px",backgroundColor:dark?"#162032":"#f1f5f9",color:idx===units.length-1?C.textMuted:C.textMid,border:`1px solid ${C.cardBorder}`,borderRadius:"5px",fontSize:"12px",cursor:idx===units.length-1?"default":"pointer",marginRight:"6px",opacity:idx===units.length-1?0.4:1}}>▼</button>
                         <button onClick={()=>setUnitModal({...unit})} style={{padding:"5px 12px",backgroundColor:dark?"#1a3560":"#dbeafe",color:dark?"#60a5fa":"#2563eb",border:"none",borderRadius:"6px",fontSize:"12px",cursor:"pointer",marginRight:"6px"}}>Átnevezés</button>
                         <button onClick={()=>setDeleteUnitConfirm(unit)} style={{padding:"5px 12px",backgroundColor:dark?"#3d1515":"#fee2e2",color:"#dc2626",border:"none",borderRadius:"6px",fontSize:"12px",cursor:"pointer"}}>🗑️ Törlés</button>
                       </td>
@@ -715,6 +748,43 @@ export default function PhoneBook() {
                   <button onClick={saveLabels} disabled={JSON.stringify(labelDraft)===JSON.stringify(labels)} style={{padding:"9px 24px",backgroundColor:JSON.stringify(labelDraft)!==JSON.stringify(labels)?C.blue:"#94a3b8",color:"#fff",border:"none",borderRadius:"8px",fontSize:"13px",fontWeight:"600",cursor:JSON.stringify(labelDraft)!==JSON.stringify(labels)?"pointer":"not-allowed",transition:"all 0.2s"}}>Mentés</button>
                 </div>
               </div>
+            </div>
+          </div>
+        )}
+        {/* ── AUDIT LOG ── */}
+        {isAdmin && adminTab==="log" && isSuperAdmin && (
+          <div style={{backgroundColor:C.cardBg,borderRadius:"12px",overflow:"hidden",boxShadow:dark?"0 2px 12px rgba(0,0,0,0.4)":"0 1px 3px rgba(0,0,0,0.07)",border:`1px solid ${C.cardBorder}`}}>
+            <div style={{padding:"12px 18px",borderBottom:`1px solid ${C.cardBorder}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span style={{fontSize:"13px",fontWeight:"600",color:C.text}}>Utolsó 200 esemény</span>
+              <button onClick={()=>call("/api/audit","GET",null,token).then(setAuditLog).catch(console.error)} style={{padding:"5px 12px",backgroundColor:dark?"#1e3347":"#f1f5f9",border:`1px solid ${C.cardBorder}`,borderRadius:"6px",color:C.textMid,fontSize:"12px",cursor:"pointer"}}>↻ Frissítés</button>
+            </div>
+            <div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse"}}>
+                <thead>
+                  <tr>
+                    {["Időpont","Felhasználó","Művelet","Entitás","ID","Részlet"].map(l=>(
+                      <th key={l} style={{...TH,cursor:"default"}}>{l}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {auditLog.length===0 ? (
+                    <tr><td colSpan={6} style={{padding:"40px 20px",textAlign:"center",color:C.textMuted}}>Nincs naplóbejegyzés</td></tr>
+                  ) : auditLog.map((row,idx)=>{
+                    const actionColors = {CREATE:"#16a34a",UPDATE:"#2563eb",DELETE:"#dc2626",LOGIN:"#7c3aed",LOGOUT:"#475569",REORDER:"#d97706"};
+                    return (
+                      <tr key={row.id} className="row-hover" style={{backgroundColor:idx%2===0?C.cardBg:C.cardBg2}}>
+                        <td style={{...TD,fontFamily:"'JetBrains Mono',monospace",fontSize:"11.5px",whiteSpace:"nowrap"}}>{row.ts.replace("T"," ").slice(0,19)}</td>
+                        <td style={{...TD,fontSize:"13px"}}>{row.username||"—"}</td>
+                        <td style={TD}><span style={{display:"inline-block",padding:"2px 9px",borderRadius:"20px",fontSize:"11px",fontWeight:"700",backgroundColor:(actionColors[row.action]||C.blue)+"22",color:actionColors[row.action]||C.blue}}>{row.action}</span></td>
+                        <td style={{...TD,fontSize:"12.5px"}}>{row.entity}</td>
+                        <td style={{...TD,fontSize:"12.5px",color:C.textMuted}}>{row.entity_id||"—"}</td>
+                        <td style={{...TD,fontSize:"12.5px",color:C.textLight,maxWidth:"220px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.detail||"—"}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           </div>
         )}
