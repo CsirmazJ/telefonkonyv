@@ -928,17 +928,26 @@ function Overlay({children,onClose,C,wide,noBackdropClose}){
 
 function EmpForm({emp,units,labels,onSave,onCancel,C}){
   const [form,setForm] = useState({...emp});
-  const set = k => e => setForm(f=>({...f,[k]:e.target.value}));
+  const [errors,setErrors] = useState({});
+  const set = k => e => { setForm(f=>({...f,[k]:e.target.value})); setErrors(er=>({...er,[k]:false})); };
 
-  // Sima függvény, NEM komponens – így nem mountolódik újra gépeléskor
   const field = (label, fkey, type="text", placeholder="", required=false) => (
     <div style={{marginBottom:"13px"}}>
       <label style={lbl(C)}>{label}{required&&<span style={{color:C.red}}> *</span>}</label>
-      <input type={type} value={form[fkey]||""} onChange={set(fkey)} placeholder={placeholder} style={inp(C)}/>
+      <input type={type} value={form[fkey]||""} onChange={set(fkey)} placeholder={placeholder}
+        style={inp(C, errors[fkey]?C.red:undefined)}/>
+      {errors[fkey] && <div style={{color:C.red,fontSize:"11.5px",marginTop:"3px"}}>⚠ Ez a mező kötelező</div>}
     </div>
   );
 
-  const valid = form.name?.trim()&&form.position?.trim()&&form.phone?.trim();
+  const handleSave = () => {
+    const required = {name:"Teljes név",position:"Beosztás",phone:"Telefonszám",email_1:"Email cím 1"};
+    const newErrors = {};
+    Object.keys(required).forEach(k => { if (!form[k]?.trim()) newErrors[k]=true; });
+    if (Object.keys(newErrors).length>0) { setErrors(newErrors); return; }
+    onSave(form);
+  };
+
   return (
     <div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 14px"}}>
@@ -952,13 +961,13 @@ function EmpForm({emp,units,labels,onSave,onCancel,C}){
             <option value="">— Nincs egység —</option>
           </select>
         </div>
-        <div style={{gridColumn:"1 / -1"}}>{field("EMAIL CÍM 1","email_1","email","nev@vallalat.hu")}</div>
+        <div style={{gridColumn:"1 / -1"}}>{field("EMAIL CÍM 1","email_1","email","nev@vallalat.hu",true)}</div>
         {field("EMAIL CÍM 2","email_2","email","opcionális")}
         {field("EMAIL CÍM 3","email_3","email","opcionális")}
       </div>
       <div style={{display:"flex",gap:"8px",justifyContent:"flex-end",marginTop:"6px"}}>
         <button onClick={onCancel} style={cancelBtn(C)}>Mégse</button>
-        <button onClick={()=>valid&&onSave(form)} disabled={!valid} style={{...saveBtn(C),opacity:valid?1:0.5}}>{form.id?"Mentés":"Hozzáadás"}</button>
+        <button onClick={handleSave} style={saveBtn(C)}>{form.id?"Mentés":"Hozzáadás"}</button>
       </div>
     </div>
   );
