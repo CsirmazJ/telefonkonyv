@@ -1,0 +1,20 @@
+name: Backup on merge
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  create-backup-tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create backup tag
+        run: |
+          TAG="backup/$(date -u +'%Y-%m-%d_%H-%M-%S')"
+          git tag "$TAG"
+          git push origin "$TAG"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
