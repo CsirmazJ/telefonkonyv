@@ -92,7 +92,13 @@ export default function PhoneBook() {
   const [deleteUnitConfirm, setDeleteUnitConfirm] = useState(null);
   const [importModal,     setImportModal]     = useState(null); // null | { rows, warnings, errors }
   const [importing,       setImporting]       = useState(false);
+  const [toast,           setToast]           = useState(null);
   const importInputRef = useRef(null);
+
+  const showToast = (message, type="success") => {
+    setToast({message,type});
+    setTimeout(()=>setToast(null), 3500);
+  };
 
   const C          = dark ? DARK : LIGHT;
   const isAdmin    = currentUser !== null;
@@ -168,12 +174,14 @@ export default function PhoneBook() {
       if (emp.id) {
         const u = await call(`/api/employees/${emp.id}`,"PUT",emp,token);
         setEmployees(p=>p.map(e=>e.id===u.id?u:e));
+        showToast(`${emp.name} adatai frissítve`);
       } else {
         const n = await call("/api/employees","POST",emp,token);
         setEmployees(p=>[...p,n]);
+        showToast(`${n.name} hozzáadva`);
       }
       setEmpModal(null);
-    } catch(e) { alert("Hiba: "+e.message); }
+    } catch(e) { showToast("Hiba: "+e.message,"error"); }
   };
 
   const toggleActive = async (id) => {
@@ -182,7 +190,8 @@ export default function PhoneBook() {
     try {
       const u = await call(`/api/employees/${id}`,"PUT",{...emp,active:!emp.active},token);
       setEmployees(p=>p.map(e=>e.id===id?u:e));
-    } catch(e) { alert("Hiba: "+e.message); }
+      showToast(emp.active ? `${emp.name} archiválva` : `${emp.name} visszaállítva`);
+    } catch(e) { showToast("Hiba: "+e.message,"error"); }
   };
 
   const deleteEmployee = async (id) => {
@@ -190,7 +199,8 @@ export default function PhoneBook() {
       await call(`/api/employees/${id}`,"DELETE",null,token);
       setEmployees(p=>p.filter(e=>e.id!==id));
       setDeleteConfirm(null);
-    } catch(e) { alert("Hiba: "+e.message); }
+      showToast("Munkatárs törölve");
+    } catch(e) { showToast("Hiba: "+e.message,"error"); }
   };
 
   // ── CRUD: Egységek ───────────────────────────────────────────────────────────
@@ -199,12 +209,14 @@ export default function PhoneBook() {
       if (unit.id) {
         const u = await call(`/api/units/${unit.id}`,"PUT",unit,token);
         setUnits(p=>p.map(x=>x.id===u.id?u:x));
+        showToast(`${unit.name} átnevezve`);
       } else {
         const n = await call("/api/units","POST",unit,token);
         setUnits(p=>[...p,n]);
+        showToast(`${n.name} egység létrehozva`);
       }
       setUnitModal(null);
-    } catch(e) { alert("Hiba: "+e.message); }
+    } catch(e) { showToast("Hiba: "+e.message,"error"); }
   };
 
   const deleteUnit = async (id) => {
@@ -213,7 +225,8 @@ export default function PhoneBook() {
       setUnits(p=>p.filter(u=>u.id!==id));
       setEmployees(p=>p.map(e=>e.unit_id===id?{...e,unit_id:null}:e));
       setDeleteUnitConfirm(null);
-    } catch(e) { alert("Hiba: "+e.message); }
+      showToast("Egység törölve");
+    } catch(e) { showToast("Hiba: "+e.message,"error"); }
   };
 
   // ── CRUD: Felhasználók ───────────────────────────────────────────────────────
@@ -228,14 +241,15 @@ export default function PhoneBook() {
         setUsers(p=>[...p,n]);
       }
       setUserModal(null);
-    } catch(e) { alert("Hiba: "+e.message); }
+      showToast("Felhasználó mentve");
+    } catch(e) { showToast("Hiba: "+e.message,"error"); }
   };
 
   const deleteUser = async (id) => {
     try {
       await call(`/api/users/${id}`,"DELETE",null,token);
       setUsers(p=>p.filter(u=>u.id!==id));
-    } catch(e) { alert("Hiba: "+e.message); }
+    } catch(e) { showToast("Hiba: "+e.message,"error"); }
   };
 
   // ── Export ───────────────────────────────────────────────────────────────────
@@ -322,14 +336,14 @@ export default function PhoneBook() {
     reader.onload = (ev) => {
       try {
         const rows = parseCSV(ev.target.result);
-        if (rows.length < 2) { alert("A fájl üres vagy nem olvasható."); return; }
+        if (rows.length < 2) { showToast("A fájl üres vagy nem olvasható.","error"); return; }
         const hdrs = rows[0].map(h=>h.trim());
         const col = (name) => hdrs.indexOf(name);
         const hasFirst = col("First Name")>=0;
         const hasLast  = col("Last Name")>=0;
         const hasName  = col("Name")>=0;
         if (!hasFirst && !hasLast && !hasName) {
-          alert("Nem ismert CSV formátum. Exportálj Google Névjegyek > Névjegyek > Összes névjegy menüből.");
+          showToast("Nem ismert CSV formátum. Exportálj Google Névjegyek > Névjegyek > Összes névjegy menüből.","error");
           return;
         }
         const existingEmails = new Set(employees.map(e=>e.email_1).filter(Boolean).map(s=>s.trim().toLowerCase()));
@@ -368,9 +382,9 @@ export default function PhoneBook() {
             _dept:    deptRaw,
           });
         });
-        if (!parsed.length) { alert("Nem található importálható névjegy a fájlban."); return; }
+        if (!parsed.length) { showToast("Nem található importálható névjegy a fájlban.","error"); return; }
         setImportModal({ rows: parsed, warnings, errors });
-      } catch(err) { alert("Hiba a fájl olvasásakor: "+err.message); }
+      } catch(err) { showToast("Hiba a fájl olvasásakor: "+err.message,"error"); }
       e.target.value = "";
     };
     reader.readAsText(file, "UTF-8");
@@ -387,7 +401,10 @@ export default function PhoneBook() {
     }
     setImporting(false);
     setImportModal(null);
-    alert(`Import kész: ${ok} munkatárs hozzáadva${fail?`, ${fail} hiba`:""}.`);
+    showToast(
+      fail>0 ? `${ok} munkatárs importálva, ${fail} hiba` : `${ok} munkatárs sikeresen importálva`,
+      fail>0 ? "error" : "success"
+    );
   };
 
   // ── Beállítások mentése ──────────────────────────────────────────────────────
@@ -395,7 +412,8 @@ export default function PhoneBook() {
     try {
       await call("/api/settings","PUT",labelDraft,token);
       setLabels({...labelDraft});
-    } catch(e) { alert("Mentési hiba: "+e.message); }
+      showToast("Beállítások mentve");
+    } catch(e) { showToast("Mentési hiba: "+e.message,"error"); }
   };
 
   // ── Táblázat stílusok ────────────────────────────────────────────────────────
@@ -425,6 +443,7 @@ export default function PhoneBook() {
         ::-webkit-scrollbar{width:5px;height:5px;}
         ::-webkit-scrollbar-thumb{background:${dark?"#1e3347":"#cbd5e1"};border-radius:3px;}
         .export-dd button:hover{background-color:${dark?"#162540":"#eff6ff"} !important;}
+        @keyframes slideUp{from{transform:translateY(16px);opacity:0}to{transform:translateY(0);opacity:1}}
       `}</style>
 
       {/* ── FEJLÉC ── */}
@@ -911,6 +930,13 @@ export default function PhoneBook() {
           </div>
         </Overlay>
       )}
+
+      {/* ── TOAST ── */}
+      {toast && (
+        <div style={{position:"fixed",bottom:"24px",right:"24px",zIndex:2000,backgroundColor:toast.type==="success"?"#16a34a":"#dc2626",color:"#fff",padding:"12px 18px",borderRadius:"10px",boxShadow:"0 4px 16px rgba(0,0,0,0.2)",fontSize:"13.5px",fontWeight:"500",maxWidth:"340px",lineHeight:"1.4",animation:"slideUp 0.25s ease"}}>
+          {toast.type==="success"?"✓ ":"⚠ "}{toast.message}
+        </div>
+      )}
     </div>
   );
 }
@@ -931,7 +957,7 @@ function EmpForm({emp,units,labels,onSave,onCancel,C}){
   const [errors,setErrors] = useState({});
   const set = k => e => { setForm(f=>({...f,[k]:e.target.value})); setErrors(er=>({...er,[k]:null})); };
 
-  const validPhone = v => /^\+36\d{9}$/.test((v||"").trim());
+  const validPhone = v => /^\+36\d{9}$/.test(fmtPhone((v||"").trim()));
   const validEmail = v => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((v||"").trim());
 
   const field = (label, fkey, type="text", placeholder="", required=false) => (
