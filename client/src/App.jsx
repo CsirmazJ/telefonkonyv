@@ -759,7 +759,7 @@ export default function PhoneBook() {
 
       {/* ── MUNKATÁRS MODAL ── */}
       {empModal && (
-        <Overlay onClose={()=>setEmpModal(null)} C={C} wide>
+        <Overlay onClose={()=>setEmpModal(null)} C={C} wide noBackdropClose>
           <h2 style={{fontSize:"17px",fontWeight:"700",marginBottom:"20px",color:C.text}}>{empModal.id?"✏️  Munkatárs szerkesztése":"➕  Új munkatárs"}</h2>
           <EmpForm emp={empModal} units={units} labels={labels} onSave={saveEmp} onCancel={()=>setEmpModal(null)} C={C}/>
         </Overlay>
@@ -916,9 +916,9 @@ export default function PhoneBook() {
 }
 
 // ─── Segédkomponensek ─────────────────────────────────────────────────────────
-function Overlay({children,onClose,C,wide}){
+function Overlay({children,onClose,C,wide,noBackdropClose}){
   return (
-    <div onClick={onClose} style={{position:"fixed",inset:0,backgroundColor:C.overlayBg,backdropFilter:"blur(3px)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,padding:"20px"}}>
+    <div onClick={noBackdropClose?undefined:onClose} style={{position:"fixed",inset:0,backgroundColor:C.overlayBg,backdropFilter:"blur(3px)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,padding:"20px"}}>
       <div onClick={e=>e.stopPropagation()} style={{backgroundColor:C.modalBg,borderRadius:"16px",padding:"28px",width:wide?"580px":"360px",maxWidth:"100%",maxHeight:"90vh",overflowY:"auto",boxShadow:"0 24px 64px rgba(0,0,0,0.25)"}}>
         {children}
       </div>
@@ -928,17 +928,26 @@ function Overlay({children,onClose,C,wide}){
 
 function EmpForm({emp,units,labels,onSave,onCancel,C}){
   const [form,setForm] = useState({...emp});
-  const set = k => e => setForm(f=>({...f,[k]:e.target.value}));
+  const [errors,setErrors] = useState({});
+  const set = k => e => { setForm(f=>({...f,[k]:e.target.value})); setErrors(er=>({...er,[k]:false})); };
 
-  // Sima függvény, NEM komponens – így nem mountolódik újra gépeléskor
   const field = (label, fkey, type="text", placeholder="", required=false) => (
     <div style={{marginBottom:"13px"}}>
       <label style={lbl(C)}>{label}{required&&<span style={{color:C.red}}> *</span>}</label>
-      <input type={type} value={form[fkey]||""} onChange={set(fkey)} placeholder={placeholder} style={inp(C)}/>
+      <input type={type} value={form[fkey]||""} onChange={set(fkey)} placeholder={placeholder}
+        style={inp(C, errors[fkey]?C.red:undefined)}/>
+      {errors[fkey] && <div style={{color:C.red,fontSize:"11.5px",marginTop:"3px"}}>⚠ Ez a mező kötelező</div>}
     </div>
   );
 
-  const valid = form.name?.trim()&&form.position?.trim()&&form.phone?.trim()&&form.email_1?.trim();
+  const handleSave = () => {
+    const required = {name:"Teljes név",position:"Beosztás",phone:"Telefonszám",email_1:"Email cím 1"};
+    const newErrors = {};
+    Object.keys(required).forEach(k => { if (!form[k]?.trim()) newErrors[k]=true; });
+    if (Object.keys(newErrors).length>0) { setErrors(newErrors); return; }
+    onSave(form);
+  };
+
   return (
     <div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 14px"}}>
@@ -949,7 +958,7 @@ function EmpForm({emp,units,labels,onSave,onCancel,C}){
           <label style={lbl(C)}>{labels?.units?.toUpperCase() || "EGYSÉG"}</label>
           <select value={form.unit_id??""} onChange={e=>setForm(f=>({...f,unit_id:e.target.value===""?null:parseInt(e.target.value)}))} style={inp(C)}>
             {units.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
-            <option value="">— Nincs {labels?.units||"egység"} —</option>
+            <option value="">— Nincs egység —</option>
           </select>
         </div>
         <div style={{gridColumn:"1 / -1"}}>{field("EMAIL CÍM 1","email_1","email","nev@vallalat.hu",true)}</div>
@@ -958,7 +967,7 @@ function EmpForm({emp,units,labels,onSave,onCancel,C}){
       </div>
       <div style={{display:"flex",gap:"8px",justifyContent:"flex-end",marginTop:"6px"}}>
         <button onClick={onCancel} style={cancelBtn(C)}>Mégse</button>
-        <button onClick={()=>valid&&onSave(form)} disabled={!valid} style={{...saveBtn(C),opacity:valid?1:0.5}}>{form.id?"Mentés":"Hozzáadás"}</button>
+        <button onClick={handleSave} style={saveBtn(C)}>{form.id?"Mentés":"Hozzáadás"}</button>
       </div>
     </div>
   );
