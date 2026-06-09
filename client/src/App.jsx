@@ -759,7 +759,7 @@ export default function PhoneBook() {
 
       {/* ── MUNKATÁRS MODAL ── */}
       {empModal && (
-        <Overlay onClose={()=>setEmpModal(null)} C={C} wide>
+        <Overlay onClose={()=>setEmpModal(null)} C={C} wide noBackdropClose>
           <h2 style={{fontSize:"17px",fontWeight:"700",marginBottom:"20px",color:C.text}}>{empModal.id?"✏️  Munkatárs szerkesztése":"➕  Új munkatárs"}</h2>
           <EmpForm emp={empModal} units={units} labels={labels} onSave={saveEmp} onCancel={()=>setEmpModal(null)} C={C}/>
         </Overlay>
@@ -916,9 +916,9 @@ export default function PhoneBook() {
 }
 
 // ─── Segédkomponensek ─────────────────────────────────────────────────────────
-function Overlay({children,onClose,C,wide}){
+function Overlay({children,onClose,C,wide,noBackdropClose}){
   return (
-    <div onClick={onClose} style={{position:"fixed",inset:0,backgroundColor:C.overlayBg,backdropFilter:"blur(3px)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,padding:"20px"}}>
+    <div onClick={noBackdropClose?undefined:onClose} style={{position:"fixed",inset:0,backgroundColor:C.overlayBg,backdropFilter:"blur(3px)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,padding:"20px"}}>
       <div onClick={e=>e.stopPropagation()} style={{backgroundColor:C.modalBg,borderRadius:"16px",padding:"28px",width:wide?"580px":"360px",maxWidth:"100%",maxHeight:"90vh",overflowY:"auto",boxShadow:"0 24px 64px rgba(0,0,0,0.25)"}}>
         {children}
       </div>
@@ -938,7 +938,7 @@ function EmpForm({emp,units,labels,onSave,onCancel,C}){
     </div>
   );
 
-  const valid = form.name?.trim()&&form.position?.trim()&&form.phone?.trim()&&form.email_1?.trim();
+  const valid = form.name?.trim()&&form.position?.trim()&&form.phone?.trim();
   return (
     <div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 14px"}}>
@@ -949,10 +949,10 @@ function EmpForm({emp,units,labels,onSave,onCancel,C}){
           <label style={lbl(C)}>{labels?.units?.toUpperCase() || "EGYSÉG"}</label>
           <select value={form.unit_id??""} onChange={e=>setForm(f=>({...f,unit_id:e.target.value===""?null:parseInt(e.target.value)}))} style={inp(C)}>
             {units.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
-            <option value="">— Nincs {labels?.units||"egység"} —</option>
+            <option value="">— Nincs egység —</option>
           </select>
         </div>
-        <div style={{gridColumn:"1 / -1"}}>{field("EMAIL CÍM 1","email_1","email","nev@vallalat.hu",true)}</div>
+        <div style={{gridColumn:"1 / -1"}}>{field("EMAIL CÍM 1","email_1","email","nev@vallalat.hu")}</div>
         {field("EMAIL CÍM 2","email_2","email","opcionális")}
         {field("EMAIL CÍM 3","email_3","email","opcionális")}
       </div>
