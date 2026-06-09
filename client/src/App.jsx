@@ -175,6 +175,7 @@ export default function PhoneBook() {
     if (q) list = list.filter(e =>
       e.name.toLowerCase().includes(q) || e.position.toLowerCase().includes(q) ||
       e.phone.replace(/\s/g,"").includes(q.replace(/\s/g,"")) ||
+      (e.phone_2||"").replace(/\s/g,"").includes(q.replace(/\s/g,"")) ||
       [e.email_1,e.email_2,e.email_3].some(em=>em.toLowerCase().includes(q))
     );
     return [...list].sort((a,b)=>{
@@ -491,9 +492,23 @@ export default function PhoneBook() {
   const copyBtn = (value, key) => {
     if (!value) return null;
     const copied = copiedKey === key;
+    const doCopy = (e) => {
+      e.preventDefault();
+      const finish = () => { setCopiedKey(key); setTimeout(()=>setCopiedKey(null),1500); };
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(value.trim()).then(finish).catch(()=>{
+          const el=document.createElement('textarea'); el.value=value.trim();
+          document.body.appendChild(el); el.select(); document.execCommand('copy');
+          document.body.removeChild(el); finish();
+        });
+      } else {
+        const el=document.createElement('textarea'); el.value=value.trim();
+        document.body.appendChild(el); el.select(); document.execCommand('copy');
+        document.body.removeChild(el); finish();
+      }
+    };
     return (
-      <button onClick={(e) => { e.preventDefault(); navigator.clipboard.writeText(value.trim()).then(() => { setCopiedKey(key); setTimeout(()=>setCopiedKey(null),1500); }); }}
-        title="Vágólapra másolás"
+      <button onClick={doCopy} title="Vágólapra másolás"
         style={{background:"none",border:"none",cursor:"pointer",padding:"2px 4px",color:copied?"#16a34a":C.textMuted,fontSize:"11px",lineHeight:1,marginLeft:"4px",opacity:copied?1:0.5,transition:"all 0.2s",verticalAlign:"middle"}}>
         {copied?"✓":"⎘"}
       </button>
@@ -531,11 +546,15 @@ export default function PhoneBook() {
         .export-dd button:hover{background-color:${dark?"#162540":"#eff6ff"} !important;}
         @keyframes slideUp{from{transform:translateY(16px);opacity:0}to{transform:translateY(0);opacity:1}}
         @media print{
-          header,footer,.no-print{display:none!important;}
-          body{background:#fff!important;}
-          .print-header{display:block!important;}
+          header,footer,.no-print,.unit-tab-bar{display:none!important;}
+          body{background:white!important;}
           table{page-break-inside:auto;}
           tr{page-break-inside:avoid;}
+          thead{display:table-header-group;}
+          th{background-color:#1a1a2e!important;color:white!important;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+          td{color:#000!important;border-bottom:1px solid #ddd!important;}
+          a{color:#000!important;text-decoration:none!important;}
+          .print-header{display:block!important;margin-bottom:16px;}
         }
         .print-header{display:none;}
       `}</style>
@@ -610,7 +629,7 @@ export default function PhoneBook() {
       </header>
 
       {/* ── EGYSÉG SZŰRŐ SÁV ── */}
-      <div className="no-print" style={{backgroundColor:C.tabBar,borderBottom:`1px solid ${C.tabBorder}`,display:"flex",alignItems:"stretch",overflowX:"auto",flexShrink:0,padding:"0 16px"}}>
+      <div className="no-print unit-tab-bar" style={{backgroundColor:C.tabBar,borderBottom:`1px solid ${C.tabBorder}`,display:"flex",alignItems:"stretch",overflowX:"auto",flexShrink:0,padding:"0 16px"}}>
         {[{id:null,name:`Összes ${labels.units}`},...units].map(u=>{
           const active=selUnit===u.id;
           return (
@@ -706,6 +725,17 @@ export default function PhoneBook() {
 
         {/* ── MUNKATÁRS TÁBLÁZAT ── */}
         {(!isAdmin||adminTab==="employees") && (
+          <>
+          <div className="print-header">
+            <h1 style={{fontSize:"18px",fontWeight:"700",margin:"0 0 4px 0"}}>{labels.title}</h1>
+            <p style={{fontSize:"12px",color:"#666",margin:0}}>
+              Nyomtatva: {new Date().toLocaleDateString("hu-HU")}
+              {" – "}{filtered.length} munkatárs
+              {selUnit&&typeof selUnit==="number"?` · ${uName(selUnit)}`:""}
+              {selUnit==="unassigned"?` · ${labels.units} nélkül`:""}
+              {search.trim()?` · keresés: "${search.trim()}"` : ""}
+            </p>
+          </div>
           <div style={{backgroundColor:C.cardBg,borderRadius:"12px",overflow:"hidden",boxShadow:dark?"0 2px 12px rgba(0,0,0,0.4)":"0 1px 3px rgba(0,0,0,0.07)",border:`1px solid ${C.cardBorder}`}}>
             <div style={{overflowX:"auto"}}>
               <table style={{width:"100%",borderCollapse:"collapse"}}>
@@ -745,9 +775,10 @@ export default function PhoneBook() {
                             {emp.name.split(" ").slice(0,2).map(n=>n[0]).join("")}
                           </div>
                           <div>
-                            {isAdmin ? <div>{emp.name}</div> : (
+                            <div style={{display:"flex",alignItems:"center",gap:"5px"}}>
                               <div onClick={()=>downloadVCard(emp)} title="vCard letöltése" style={{cursor:"pointer",display:"inline"}} onMouseEnter={e=>e.currentTarget.style.textDecoration="underline"} onMouseLeave={e=>e.currentTarget.style.textDecoration="none"}>{emp.name}</div>
-                            )}
+                              <button onClick={()=>downloadVCard(emp)} title="vCard letöltése" style={{background:"none",border:"none",cursor:"pointer",padding:"1px 3px",fontSize:"12px",lineHeight:1,color:C.textMuted,opacity:0.6,transition:"opacity 0.15s"}} onMouseEnter={e=>e.currentTarget.style.opacity="1"} onMouseLeave={e=>e.currentTarget.style.opacity="0.6"}>📇</button>
+                            </div>
                             {!emp.active && <span style={{fontSize:"10px",backgroundColor:dark?"#2a1e00":"#fef3c7",color:"#d97706",padding:"1px 6px",borderRadius:"8px",fontWeight:"700"}}>ARCHIVÁLT</span>}
                           </div>
                         </div>
@@ -797,6 +828,7 @@ export default function PhoneBook() {
               <span style={{fontSize:"11px",color:C.footText}}>Kattintson az oszlop fejlécére a rendezéshez</span>
             </div>
           </div>
+          </>
         )}
 
         {/* ── EGYSÉGEK TÁBLÁZAT ── */}
