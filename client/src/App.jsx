@@ -247,7 +247,6 @@ export default function PhoneBook() {
 
   const doGoogleCSV = (list) => {
     const uId = list.length>0&&list.every(e=>e.unit_id===list[0].unit_id) ? uName(list[0].unit_id) : "osszes";
-    const orgName = labels.title || "Vállalat";
     const hasEmail2 = list.some(e=>e.email_2);
     const hasEmail3 = list.some(e=>e.email_3);
     const headers = [
@@ -265,13 +264,11 @@ export default function PhoneBook() {
       const parts = e.name.trim().split(/\s+/);
       const lastName  = parts[0]||"";
       const firstName = parts.slice(1).join(" ");
-      const dept = e.unit_id!=null ? uName(e.unit_id) : "";
-      const label = dept ? `${dept} ::: * myContacts` : "* myContacts";
       return [
         firstName,"",lastName,
         "","","","","","","",
-        orgName, e.position, dept,
-        "","","", label,
+        "", e.position, "",
+        "","","", "",
         "*", e.email_1,
         ...(hasEmail2?["*",e.email_2]:[]),
         ...(hasEmail3?["*",e.email_3]:[]),
