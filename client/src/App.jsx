@@ -929,21 +929,30 @@ function Overlay({children,onClose,C,wide,noBackdropClose}){
 function EmpForm({emp,units,labels,onSave,onCancel,C}){
   const [form,setForm] = useState({...emp});
   const [errors,setErrors] = useState({});
-  const set = k => e => { setForm(f=>({...f,[k]:e.target.value})); setErrors(er=>({...er,[k]:false})); };
+  const set = k => e => { setForm(f=>({...f,[k]:e.target.value})); setErrors(er=>({...er,[k]:null})); };
+
+  const validPhone = v => /^\+36\d{9}$/.test((v||"").trim());
+  const validEmail = v => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((v||"").trim());
 
   const field = (label, fkey, type="text", placeholder="", required=false) => (
     <div style={{marginBottom:"13px"}}>
       <label style={lbl(C)}>{label}{required&&<span style={{color:C.red}}> *</span>}</label>
       <input type={type} value={form[fkey]||""} onChange={set(fkey)} placeholder={placeholder}
         style={inp(C, errors[fkey]?C.red:undefined)}/>
-      {errors[fkey] && <div style={{color:C.red,fontSize:"11.5px",marginTop:"3px"}}>⚠ Ez a mező kötelező</div>}
+      {errors[fkey] && <div style={{color:C.red,fontSize:"11.5px",marginTop:"3px"}}>⚠ {errors[fkey]}</div>}
     </div>
   );
 
   const handleSave = () => {
-    const required = {name:"Teljes név",position:"Beosztás",phone:"Telefonszám",email_1:"Email cím 1"};
     const newErrors = {};
-    Object.keys(required).forEach(k => { if (!form[k]?.trim()) newErrors[k]=true; });
+    if (!form.name?.trim())     newErrors.name     = "Ez a mező kötelező";
+    if (!form.position?.trim()) newErrors.position = "Ez a mező kötelező";
+    if (!form.phone?.trim())          newErrors.phone    = "Ez a mező kötelező";
+    else if (!validPhone(form.phone)) newErrors.phone    = "Érvénytelen formátum – pl. +36301234567";
+    if (!form.email_1?.trim())          newErrors.email_1 = "Ez a mező kötelező";
+    else if (!validEmail(form.email_1)) newErrors.email_1 = "Érvénytelen email cím";
+    if (form.email_2?.trim() && !validEmail(form.email_2)) newErrors.email_2 = "Érvénytelen email cím";
+    if (form.email_3?.trim() && !validEmail(form.email_3)) newErrors.email_3 = "Érvénytelen email cím";
     if (Object.keys(newErrors).length>0) { setErrors(newErrors); return; }
     onSave(form);
   };
@@ -953,7 +962,7 @@ function EmpForm({emp,units,labels,onSave,onCancel,C}){
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 14px"}}>
         <div style={{gridColumn:"1 / -1"}}>{field("TELJES NÉV","name","text","Kovács Péter",true)}</div>
         {field("BEOSZTÁS","position","text","pl. Fejlesztő",true)}
-        {field("TELEFONSZÁM","phone","tel","+36 30 000-0000",true)}
+        {field("TELEFONSZÁM","phone","tel","+36301234567",true)}
         <div style={{gridColumn:"1 / -1",marginBottom:"13px"}}>
           <label style={lbl(C)}>{labels?.units?.toUpperCase() || "EGYSÉG"}</label>
           <select value={form.unit_id??""} onChange={e=>setForm(f=>({...f,unit_id:e.target.value===""?null:parseInt(e.target.value)}))} style={inp(C)}>
