@@ -97,6 +97,7 @@ export default function PhoneBook() {
   const [copiedKey,       setCopiedKey]       = useState(null);
   const [selectedIds,     setSelectedIds]     = useState(new Set());
   const [bulkUnit,        setBulkUnit]        = useState("");
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
   const importInputRef = useRef(null);
 
   const showToast = (message, type="success") => {
@@ -146,6 +147,7 @@ export default function PhoneBook() {
   useEffect(() => {
     const onKey = (e) => {
       if (e.key !== "Escape") return;
+      if (bulkDeleteConfirm) { setBulkDeleteConfirm(false); return; }
       if (deleteConfirm)     { setDeleteConfirm(null);     return; }
       if (deleteUnitConfirm) { setDeleteUnitConfirm(null); return; }
       if (importModal)       { setImportModal(null);       return; }
@@ -158,7 +160,7 @@ export default function PhoneBook() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [deleteConfirm, deleteUnitConfirm, importModal, empModal,
+  }, [bulkDeleteConfirm, deleteConfirm, deleteUnitConfirm, importModal, empModal,
       unitModal, userModal, exportModal, loginOpen, exportOpen]);
 
   // ── Segédfüggvények ──────────────────────────────────────────────────────────
@@ -675,40 +677,60 @@ export default function PhoneBook() {
         )}
 
         {/* Tömeges műveletek sáv */}
-        {isAdmin && adminTab==="employees" && selectedIds.size>0 && (
-          <div style={{display:"flex",alignItems:"center",gap:"12px",flexWrap:"wrap",padding:"10px 14px",marginBottom:"10px",backgroundColor:dark?"#0f1a28":"#eff6ff",border:`1px solid ${C.blue}`,borderRadius:"9px",fontSize:"13px"}}>
-            <span style={{color:C.blue,fontWeight:"600"}}>{selectedIds.size} munkatárs kijelölve</span>
-            <div style={{display:"flex",alignItems:"center",gap:"6px",marginLeft:"auto"}}>
-              <select value={bulkUnit} onChange={e=>setBulkUnit(e.target.value)} style={{...inp(C),width:"auto",padding:"5px 10px",fontSize:"12.5px"}}>
-                <option value="">— Egység módosítása —</option>
-                {units.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
-                <option value="null">Nincs egység</option>
-              </select>
-              <button disabled={!bulkUnit} onClick={async()=>{
-                const uid=bulkUnit==="null"?null:parseInt(bulkUnit);
-                const count=selectedIds.size;
-                for(const id of selectedIds){
-                  const emp=employees.find(e=>e.id===id);
-                  if(!emp) continue;
-                  try{const u=await call(`/api/employees/${id}`,"PUT",{...emp,unit_id:uid},token);setEmployees(p=>p.map(e=>e.id===id?u:e));}catch{}
-                }
-                setSelectedIds(new Set());setBulkUnit("");
-                showToast(`${count} munkatárs egysége módosítva`);
-              }} style={{padding:"5px 12px",backgroundColor:C.blue,color:"#fff",border:"none",borderRadius:"6px",fontSize:"12.5px",fontWeight:"600",cursor:bulkUnit?"pointer":"default",opacity:bulkUnit?1:0.5}}>Alkalmaz</button>
+        {isAdmin && adminTab==="employees" && selectedIds.size>0 && (() => {
+          const selectedEmps = [...selectedIds].map(id=>employees.find(e=>e.id===id)).filter(Boolean);
+          const hasActive    = selectedEmps.some(e=>e.active);
+          const hasArchived  = selectedEmps.some(e=>!e.active);
+          return (
+            <div style={{display:"flex",alignItems:"center",gap:"12px",flexWrap:"wrap",padding:"10px 14px",marginBottom:"10px",backgroundColor:dark?"#0f1a28":"#eff6ff",border:`1px solid ${C.blue}`,borderRadius:"9px",fontSize:"13px"}}>
+              <span style={{color:C.blue,fontWeight:"600"}}>{selectedIds.size} munkatárs kijelölve</span>
+              <div style={{display:"flex",alignItems:"center",gap:"6px",marginLeft:"auto"}}>
+                <select value={bulkUnit} onChange={e=>setBulkUnit(e.target.value)} style={{...inp(C),width:"auto",padding:"5px 10px",fontSize:"12.5px"}}>
+                  <option value="">— Egység módosítása —</option>
+                  {units.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
+                  <option value="null">Nincs egység</option>
+                </select>
+                <button disabled={!bulkUnit} onClick={async()=>{
+                  const uid=bulkUnit==="null"?null:parseInt(bulkUnit);
+                  const count=selectedIds.size;
+                  for(const id of selectedIds){
+                    const emp=employees.find(e=>e.id===id);
+                    if(!emp) continue;
+                    try{const u=await call(`/api/employees/${id}`,"PUT",{...emp,unit_id:uid},token);setEmployees(p=>p.map(e=>e.id===id?u:e));}catch{}
+                  }
+                  setSelectedIds(new Set());setBulkUnit("");
+                  showToast(`${count} munkatárs egysége módosítva`);
+                }} style={{padding:"5px 12px",backgroundColor:C.blue,color:"#fff",border:"none",borderRadius:"6px",fontSize:"12.5px",fontWeight:"600",cursor:bulkUnit?"pointer":"default",opacity:bulkUnit?1:0.5}}>Alkalmaz</button>
+              </div>
+              {hasActive && (
+                <button onClick={async()=>{
+                  const count=selectedIds.size;
+                  for(const id of selectedIds){
+                    const emp=employees.find(e=>e.id===id);
+                    if(!emp||!emp.active) continue;
+                    try{const u=await call(`/api/employees/${id}`,"PUT",{...emp,active:false},token);setEmployees(p=>p.map(e=>e.id===id?u:e));}catch{}
+                  }
+                  setSelectedIds(new Set());
+                  showToast(`${count} munkatárs archiválva`);
+                }} style={{padding:"5px 12px",backgroundColor:dark?"#2a1e00":"#fef3c7",color:"#d97706",border:"none",borderRadius:"6px",fontSize:"12.5px",cursor:"pointer"}}>📁 Archiválás</button>
+              )}
+              {hasArchived && (
+                <button onClick={async()=>{
+                  const count=selectedIds.size;
+                  for(const id of selectedIds){
+                    const emp=employees.find(e=>e.id===id);
+                    if(!emp||emp.active) continue;
+                    try{const u=await call(`/api/employees/${id}`,"PUT",{...emp,active:true},token);setEmployees(p=>p.map(e=>e.id===id?u:e));}catch{}
+                  }
+                  setSelectedIds(new Set());
+                  showToast(`${count} munkatárs visszaállítva`);
+                }} style={{padding:"5px 12px",backgroundColor:dark?"#0a2010":"#dcfce7",color:"#16a34a",border:"none",borderRadius:"6px",fontSize:"12.5px",cursor:"pointer"}}>♻️ Visszaállítás</button>
+              )}
+              <button onClick={()=>setBulkDeleteConfirm(true)} style={{padding:"5px 12px",backgroundColor:dark?"#3d1515":"#fee2e2",color:"#dc2626",border:"none",borderRadius:"6px",fontSize:"12.5px",cursor:"pointer"}}>🗑️ Törlés</button>
+              <button onClick={()=>setSelectedIds(new Set())} style={{padding:"5px 12px",backgroundColor:"transparent",border:`1px solid ${C.cardBorder}`,borderRadius:"6px",color:C.textLight,fontSize:"12.5px",cursor:"pointer"}}>Kijelölés törlése</button>
             </div>
-            <button onClick={async()=>{
-              const count=selectedIds.size;
-              for(const id of selectedIds){
-                const emp=employees.find(e=>e.id===id);
-                if(!emp||!emp.active) continue;
-                try{const u=await call(`/api/employees/${id}`,"PUT",{...emp,active:false},token);setEmployees(p=>p.map(e=>e.id===id?u:e));}catch{}
-              }
-              setSelectedIds(new Set());
-              showToast(`${count} munkatárs archiválva`);
-            }} style={{padding:"5px 12px",backgroundColor:dark?"#2a1e00":"#fef3c7",color:"#d97706",border:"none",borderRadius:"6px",fontSize:"12.5px",cursor:"pointer"}}>📁 Archiválás</button>
-            <button onClick={()=>setSelectedIds(new Set())} style={{padding:"5px 12px",backgroundColor:"transparent",border:`1px solid ${C.cardBorder}`,borderRadius:"6px",color:C.textLight,fontSize:"12.5px",cursor:"pointer"}}>Kijelölés törlése</button>
-          </div>
-        )}
+          );
+        })()}
 
         {/* Infó sáv */}
         {(!isAdmin||adminTab==="employees") && (
@@ -1096,6 +1118,35 @@ export default function PhoneBook() {
           </Overlay>
         );
       })()}
+
+      {/* ── CSOPORTOS TÖRLÉS MODAL ── */}
+      {bulkDeleteConfirm && (
+        <Overlay onClose={()=>setBulkDeleteConfirm(false)} C={C}>
+          <div style={{textAlign:"center",marginBottom:"20px"}}>
+            <div style={{width:"52px",height:"52px",backgroundColor:dark?"#3d1515":"#fee2e2",borderRadius:"50%",display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:"24px",marginBottom:"14px"}}>🗑️</div>
+            <h2 style={{fontSize:"17px",fontWeight:"700",color:C.text,marginBottom:"8px"}}>Csoportos törlés</h2>
+            <p style={{fontSize:"13.5px",color:C.textLight,lineHeight:"1.5"}}>
+              Biztosan törlöd a kijelölt <b style={{color:C.text}}>{selectedIds.size} munkatárs</b> összes adatát?
+            </p>
+            <p style={{fontSize:"12px",color:"#dc2626",marginTop:"8px",padding:"8px 12px",backgroundColor:dark?"#3d1515":"#fff5f5",borderRadius:"8px",border:`1px solid ${dark?"#7f1d1d":"#fecaca"}`}}>
+              ⚠ Ez a művelet nem visszavonható. Ha csak el szeretnéd rejteni őket, használd az Archiválást.
+            </p>
+          </div>
+          <div style={{display:"flex",gap:"8px",justifyContent:"center"}}>
+            <button onClick={()=>setBulkDeleteConfirm(false)} style={{...cancelBtn(C),padding:"10px 24px"}}>Mégse</button>
+            <button onClick={async()=>{
+              const ids=[...selectedIds]; const count=ids.length;
+              for(const id of ids){
+                try{ await call(`/api/employees/${id}`,"DELETE",null,token); setEmployees(p=>p.filter(e=>e.id!==id)); }catch{}
+              }
+              setSelectedIds(new Set()); setBulkDeleteConfirm(false);
+              showToast(`${count} munkatárs törölve`);
+            }} style={{padding:"10px 24px",backgroundColor:"#dc2626",color:"#fff",border:"none",borderRadius:"8px",fontSize:"13.5px",fontWeight:"700",cursor:"pointer",boxShadow:"0 2px 6px rgba(220,38,38,0.35)"}}>
+              Törlés ({selectedIds.size} munkatárs)
+            </button>
+          </div>
+        </Overlay>
+      )}
 
       {/* ── IMPORT MODAL ── */}
       {importModal && (
