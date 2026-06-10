@@ -982,7 +982,7 @@ export default function PhoneBook() {
 
       {/* ── LÁBLÉC ── */}
       <footer style={{padding:"10px 20px",display:"flex",alignItems:"center",justifyContent:"space-between",borderTop:`1px solid ${C.cardBorder}`,flexShrink:0}}>
-        <span style={{fontSize:"11px",color:C.textMuted,fontFamily:"'JetBrains Mono',monospace",letterSpacing:"0.04em"}}>V0.01</span>
+        <span style={{fontSize:"11px",color:C.textMuted,fontFamily:"'JetBrains Mono',monospace",letterSpacing:"0.04em"}}>V1.0</span>
         <span style={{fontSize:"11px",color:dark?"rgba(255,255,255,0.08)":"rgba(0,0,0,0.08)",letterSpacing:"0.06em",userSelect:"none"}}>by Dark</span>
       </footer>
 
