@@ -28,7 +28,7 @@ const fmtPhone = (p) => {
 // ─── Színsémák ────────────────────────────────────────────────────────────────
 const LIGHT = {
   pageBg:"#f8fafc",header:"#0d1b2e",headerBorder:"#1e3a5f",tabBar:"#162032",tabBorder:"#1e3a5f",
-  tabText:"#7aa3cc",tabActive:"#ffffff",cardBg:"#ffffff",cardBg2:"#fafbff",cardBorder:"#e2e8f0",
+  tabText:"#7aa3cc",tabActive:"#ffffff",cardBg:"#ffffff",cardBg2:"#eef3fb",cardBorder:"#e2e8f0",
   cardFoot:"#fafbff",cardFootBorder:"#f1f5f9",thBg:"#0d1b2e",thText:"#7aa3cc",thBorder:"#1e3a5f",
   tdText:"#334155",tdTextMid:"#475569",tdTextLight:"#64748b",tdBorder:"#f1f5f9",
   rowOdd:"#fafbff",rowHover:"#eff6ff",rowArchived:"#fffbeb",text:"#0f172a",textMid:"#334155",
