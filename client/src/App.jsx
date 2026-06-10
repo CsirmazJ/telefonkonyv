@@ -669,7 +669,7 @@ export default function PhoneBook() {
                 <button onClick={()=>setEmpModal({...EMPTY_EMP})} style={{display:"flex",alignItems:"center",gap:"6px",padding:"7px 16px",backgroundColor:C.blue,color:"#fff",border:"none",borderRadius:"7px",fontSize:"13px",fontWeight:"600",cursor:"pointer",boxShadow:"0 2px 6px rgba(59,130,246,0.3)"}}>+ Új munkatárs</button>
               </div>
             )}
-            {adminTab==="units"     && <button onClick={()=>setUnitModal({name:""})} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:"6px",padding:"7px 16px",backgroundColor:C.blue,color:"#fff",border:"none",borderRadius:"7px",fontSize:"13px",fontWeight:"600",cursor:"pointer",boxShadow:"0 2px 6px rgba(59,130,246,0.3)"}}>+ Új {labels.units.toLowerCase().replace(/[aáeéoöuü]k$/,"")}</button>}
+            {adminTab==="units"     && <button onClick={()=>setUnitModal({name:""})} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:"6px",padding:"7px 16px",backgroundColor:C.blue,color:"#fff",border:"none",borderRadius:"7px",fontSize:"13px",fontWeight:"600",cursor:"pointer",boxShadow:"0 2px 6px rgba(59,130,246,0.3)"}}>+ Új {labels.units.toLowerCase().replace(/[aáeéiíoóöőuúüű]k$/i,"")}</button>}
             {adminTab==="users" && isSuperAdmin && <button onClick={()=>setUserModal({username:"",password:"",displayName:"",role:"editor"})} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:"6px",padding:"7px 16px",backgroundColor:C.blue,color:"#fff",border:"none",borderRadius:"7px",fontSize:"13px",fontWeight:"600",cursor:"pointer",boxShadow:"0 2px 6px rgba(59,130,246,0.3)"}}>+ Új felhasználó</button>}
           </div>
         )}
@@ -1003,7 +1003,7 @@ export default function PhoneBook() {
           <div style={{padding:"14px 16px",backgroundColor:C.cardBg,border:`1.5px solid ${C.cardBorder}`,borderRadius:"10px",marginBottom:"20px"}}>
             <div style={{display:"flex",alignItems:"center",gap:"12px",marginBottom:"12px"}}>
               <div style={{width:"38px",height:"38px",borderRadius:"9px",backgroundColor:C.blueSoft,display:"flex",alignItems:"center",justifyContent:"center",fontSize:"19px",flexShrink:0}}>📂</div>
-              <div><div style={{fontWeight:"600",fontSize:"13.5px",color:C.text}}>Csak egy {labels.units.toLowerCase().replace(/[aáeéoöuü]k$/,"")}</div><div style={{fontSize:"12px",color:C.textMuted,marginTop:"2px"}}>Válaszd ki a {labels.units.toLowerCase().replace(/[aáeéoöuü]k$/,"")}-t az alábbi listából</div></div>
+              <div><div style={{fontWeight:"600",fontSize:"13.5px",color:C.text}}>Csak egy {labels.units.toLowerCase().replace(/[aáeéiíoóöőuúüű]k$/i,"")}</div><div style={{fontSize:"12px",color:C.textMuted,marginTop:"2px"}}>Válaszd ki a {labels.units.toLowerCase().replace(/[aáeéiíoóöőuúüű]k$/i,"")}-t az alábbi listából</div></div>
             </div>
             <div style={{display:"flex",gap:"8px",alignItems:"center"}}>
               <select value={exportUnitId||""} onChange={e=>setExportUnitId(parseInt(e.target.value))} style={{flex:1,...inp(C),padding:"8px 12px",fontSize:"13px"}}>
@@ -1043,7 +1043,7 @@ export default function PhoneBook() {
       {/* ── EGYSÉG MODAL ── */}
       {unitModal && (
         <Overlay onClose={()=>setUnitModal(null)} C={C}>
-          <h2 style={{fontSize:"17px",fontWeight:"700",marginBottom:"20px",color:C.text}}>{unitModal.id?`${labels.units} átnevezése`:`Új ${labels.units.toLowerCase().replace(/[aáeéoöuü]k$/,"")}`}</h2>
+          <h2 style={{fontSize:"17px",fontWeight:"700",marginBottom:"20px",color:C.text}}>{unitModal.id?`${labels.units} átnevezése`:`Új ${labels.units.toLowerCase().replace(/[aáeéiíoóöőuúüű]k$/i,"")}`}</h2>
           <label style={lbl(C)}>{labels.units.toUpperCase()} NEVE</label>
           <input type="text" value={unitModal.name} onChange={e=>setUnitModal(u=>({...u,name:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&saveUnit(unitModal)} placeholder="pl. Marketing" style={inp(C)}/>
           <div style={{display:"flex",gap:"8px",marginTop:"18px",justifyContent:"flex-end"}}>
@@ -1077,7 +1077,7 @@ export default function PhoneBook() {
             <div style={{textAlign:"center",marginBottom:"20px"}}>
               <div style={{width:"52px",height:"52px",backgroundColor:dark?"#3d1515":"#fee2e2",borderRadius:"50%",display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:"24px",marginBottom:"14px"}}>🗑️</div>
               <h2 style={{fontSize:"17px",fontWeight:"700",color:C.text,marginBottom:"8px"}}>{labels.units} törlése</h2>
-              <p style={{fontSize:"13.5px",color:C.textLight,lineHeight:"1.5"}}>Biztosan törlöd a <b style={{color:C.text}}>{deleteUnitConfirm.name}</b> {labels.units.toLowerCase().replace(/[aáeéoöuü]k$/,"")}-t?</p>
+              <p style={{fontSize:"13.5px",color:C.textLight,lineHeight:"1.5"}}>Biztosan törlöd a <b style={{color:C.text}}>{deleteUnitConfirm.name}</b> {labels.units.toLowerCase().replace(/[aáeéiíoóöőuúüű]k$/i,"")}-t?</p>
             </div>
             {affected>0 ? (
               <div style={{padding:"13px 15px",backgroundColor:dark?"#2a1e00":"#fffbeb",border:`1px solid ${dark?"#92400e":"#fde68a"}`,borderRadius:"9px",marginBottom:"20px"}}>
